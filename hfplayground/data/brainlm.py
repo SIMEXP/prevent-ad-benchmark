@@ -14,9 +14,28 @@ from tqdm import tqdm
 from importlib.resources import files
 
 # hard cpded for this tutorial
-ATLAS_FILE = 'resource/development_fmri/downsample_A424+2mm.nii.gz'
+DATASET_MAPPER = {
+    'development_fmri': {
+        'atlas_file': 'resource/development_fmri/resample_A424+2mm.nii.gz',
+        'phenotype': {
+            'filepath': "data/external/development_fmri/development_fmri/participants.tsv",
+            'index_col': "participant_id",
+            'convert_data': ['Age', 'Gender', 'AgeGroup', 'Child_Adult']
+        }
 
-def convert_fMRIvols_to_A424(data_path, output_path):
+    },
+    'preventad': {
+        'atlas_file': 'resource/preventad/resample_A424+2mm.nii.gz',
+        'phenotype': {
+            'filepath': "data/source/dataset-preventad_version-8.1internal_pipeline-gigapreprocess2/dataset-preventad81internal_desc-sexage_pheno.tsv",
+            'index_col': "identifier",
+            'convert_data': ['Sex', 'Candidate_Age']
+        }
+    }
+}
+
+
+def convert_fMRIvols_to_A424(data_path, output_path, dataset_name='development_fmri'):
     """
     This function takes in a folder of preprocessed fMRI volumes (.nii.gz), extracts A424 parcels, and saves these
     timeseries data to .dat files.
@@ -28,14 +47,21 @@ def convert_fMRIvols_to_A424(data_path, output_path):
         data_path: Directory of fMRI volumes
         output_path: Where to store the output parcellated time series (.dat files)
     """
-
+    mapper = DATASET_MAPPER[dataset_name]
     # Where is the data located?
-    paths = os.listdir(data_path)
-    print("fMRI data path specified:", data_path)
-    print("Number of fMRI files:", len(paths))
+    if dataset_name == 'development_fmri':
+        paths = os.listdir(data_path)
+        print("fMRI data path specified:", data_path)
+        print("Number of fMRI files:", len(paths))
+    else:
+        phenotype = pd.read_csv(mapper['phenotype']['filepath'], index_col=mapper['phenotype']['index_col'], sep='\t')
+        paths = []
+        for idx in phenotype.index:
+            cur = Path(data_path) / '/'.join(idx.split('_')[:2]) / f"func/{idx}_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz"
+            paths.append(str(cur))
 
     # Atlas file (Standard space atlas with cortical GM expanded by 2mm in WM)
-    l = files('hfplayground') / ATLAS_FILE
+    l = files('hfplayground') / mapper['atlas_file']
     print("Atlas file:", l)
     try:
         label_img = nib.load(l)
@@ -47,7 +73,16 @@ def convert_fMRIvols_to_A424(data_path, output_path):
 
     # Create fMRI .dat files
     for f in paths: # f = './fMRI.nii.gz'
-        file_path = os.path.join(data_path,f)
+        if dataset_name == 'development_fmri':
+            file_path = os.path.join(data_path,f)
+            save_name = f.split('.nii.gz')[0]
+        else:
+            file_path = f
+            save_name = f.split('/')[-1].split('.nii.gz')[0]
+        fn = os.path.join(output_path, f'{save_name}.dat')
+        if Path(fn).exists():
+            continue
+        
         # Load images and labels
         if ".nii.gz" in f:
             print(f'Loading 4D image from {file_path}')
@@ -81,8 +116,6 @@ def convert_fMRIvols_to_A424(data_path, output_path):
                 pmTS[np.isnan(pmTS)] = 0
 
                 # Save Time Series
-                save_name = f.split('.nii.gz')[0]
-                fn = os.path.join(output_path, f'{save_name}.dat')
                 print(f"Saving file {fn} with shape {pmTS.shape} (TRs, parcels)")
                 np.savetxt(fn, pmTS, delimiter='\t')
 
@@ -92,7 +125,8 @@ def convert_fMRIvols_to_A424(data_path, output_path):
         else:
             print(f"File {f} not a nifti file. Skipping...")
 
-def convert_to_arrow_datasets(uk_biobank_dir, save_path, ts_min_length=200, compute_Stats=True):
+
+def convert_to_arrow_datasets(uk_biobank_dir, save_path,  dataset_name='development_fmri', ts_min_length=200, compute_Stats=True):
     """
     This function accepts a arguments object containing the filepath of a directory containing
      dat files for patient fmri recordings from the UK BioBank dataset.
@@ -111,6 +145,8 @@ def convert_to_arrow_datasets(uk_biobank_dir, save_path, ts_min_length=200, comp
             --dataset_name
         save_path: concatenation of dataset save directory and arrow dataset name
     """
+    mapper = DATASET_MAPPER[dataset_name]['phenotype']
+
     # --- Train/val/test Split ---#
     print("FMRI Data Arrow Conversion Starting...")
     # Assuming that filename is patient ID, thus each file with unique name is a separate patient.
@@ -225,13 +261,16 @@ def convert_to_arrow_datasets(uk_biobank_dir, save_path, ts_min_length=200, comp
         "participant_id": [],
     }
     # Load phenotype data
-    phenotype = pd.read_csv("data/external/development_fmri/development_fmri/participants.tsv", index_col='participant_id', sep='\t')
-    convert_data = ['Age', 'Gender', 'AgeGroup', 'Child_Adult']
+    phenotype = pd.read_csv(mapper['filepath'], index_col=mapper['index_col'], sep='\t')
+    convert_data = mapper['convert_data']
     for col in convert_data:
         train_dataset_dict[col] = []
 
     for filename in tqdm(train_files, desc="Normalizing Data"):
-        participant_id = Path(filename).stem.split('_')[0]
+        if dataset_name =='development_fmri':
+            participant_id = Path(filename).stem.split('_')[0]
+        elif dataset_name == 'preventad':
+            participant_id = Path(filename).stem.split('_space')[0]
         dat_arr = np.loadtxt(os.path.join(uk_biobank_dir, filename)).astype(
             np.float32
         )

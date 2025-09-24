@@ -1,5 +1,5 @@
 from nilearn import datasets, image
-from nilearn.maskers import MultiNiftiMasker, MultiNiftiLabelsMasker
+from nilearn.maskers import NiftiMasker, MultiNiftiLabelsMasker
 from nilearn.interfaces.fmriprep import load_confounds_strategy
 from pathlib import Path
 from tqdm import tqdm
@@ -12,7 +12,7 @@ from sklearn.preprocessing import RobustScaler
 import nibabel as nib
 
 seg_name = 'A424+2mm'
-ATLAS_FILE = f'resource/development_fmri/downsample_{seg_name}.nii.gz'
+ATLAS_FILE = f'resource/development_fmri/resample_{seg_name}.nii.gz'
 denoise_strategy_name = 'simple+gsr'
 denoise_strategy = {
     'denoise_strategy': 'simple',
@@ -56,16 +56,15 @@ def denoise_development_dataset(sourcedata_dir, processed_dir, grand_mean_scale=
 
     Path(f"{processed_dir}").mkdir(exist_ok=True, parents=True)
     # I did not do signal normalisation here. It will throw brainlm results off.
-    masker = MultiNiftiMasker(
+    masker = NiftiMasker(
         mask_img=mni_mask,
         standardize=grand_mean_scale,
-        smoothing_fwhm=8,
+        smoothing_fwhm=None,
         verbose=2
     )
-    conf, sm = load_confounds_strategy(img_files=raw_to_preproc, **denoise_strategy)
-    fmri_data = masker.fit_transform(raw_to_preproc, confounds=conf, sample_mask=sm)
-
-    for preproc_path, fd in tqdm(zip(niis_preproc_path, fmri_data), desc="Save denoising data..."):
+    confounds, sample_masks = load_confounds_strategy(img_files=raw_to_preproc, **denoise_strategy)
+    for preproc_path, raw, conf, sm in tqdm(zip(niis_preproc_path, raw_to_preproc, confounds, sample_masks), desc="Save denoising data..."):
+        fd = masker.fit_transform(raw, confounds=conf, sample_mask=sm)
         nii = masker.inverse_transform(fd)
         nii.to_filename(preproc_path)
 
@@ -164,6 +163,22 @@ def brain_region_coord_to_arrow():
         dataset_path=files('hfplayground') / "resource/brainlm/atlases/brainregion_coordinates.arrow")
 
 
+def resample_atlas(nii_file, output_dir):
+    fname = os.path.basename(nii_file)
+    example_subject_MNI = "data/source/dataset-preventad_version-8.1internal_pipeline-gigapreprocess2/mri/wave1/fmriprep-20.2.8lts/sub-MTL0001/ses-BL00A/func/sub-MTL0001_ses-BL00A_task-enc_space-MNI152NLin2009cAsym_boldref.nii.gz"
+    exmple_nii = image.load_img(example_subject_MNI)
+    downsample_data = image.resample_img(
+        nii_file,
+        target_affine=exmple_nii.affine,
+        target_shape=exmple_nii.shape,
+        interpolation='nearest',
+        force_resample=True,
+        copy_header=True
+    )
+    downsample_data.to_filename(Path(output_dir) / f'resample_{fname}')
+    return Path(output_dir) / f'resample_{fname}'
+
+
 def downsample_for_tutorial(nii_file, output_dir):
     """Downsample atlas to match developmental dataset.
     Modified from https://osf.io/wjtyq
@@ -179,5 +194,5 @@ def downsample_for_tutorial(nii_file, output_dir):
         force_resample=True,
         copy_header=True
     )
-    downsample_data.to_filename(Path(output_dir) / f'downsample_{fname}')
-    return Path(output_dir) / f'downsample_{fname}'
+    downsample_data.to_filename(Path(output_dir) / f'resample_{fname}')
+    return Path(output_dir) / f'resample_{fname}'

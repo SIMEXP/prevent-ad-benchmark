@@ -1,19 +1,13 @@
-# hfplayground
+# PrenventAD benchmark
 
-For learning and testing various hugging face stuff through BrainLM.
-
-Here I am using the nilearn test dataset to walk through BrainLM fine tuning and downstream tutorial.
-
-The aim is to use the code as-is as much as possible.
-
-Later we might try to improve the process....
+Using BrainLM (and perhaps more) to explore phenotype prediction in PreventAD.
 
 ## Run this project
 
 Please use [`uv`](https://docs.astral.sh/uv/) to install this project for the smoothest experience.
 
 ```
-git clone git@github.com:htwangtw/hfplayground.git
+git clone git@github.com:SIMEXP/prevent-ad-benchmark.git
 ```
 
 The brainLM submodule is for record keeping.
@@ -41,7 +35,7 @@ You can either activate the environment with `source .venv/bin/activate` and use
 or prepend any command you want to run with `uv run` to activate the environment.
 
 
-## Download models and data
+## Download models and example data
 
 With `uv`, example:
 ```
