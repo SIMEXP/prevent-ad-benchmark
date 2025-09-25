@@ -1,5 +1,5 @@
 from nilearn import datasets, image
-from nilearn.maskers import NiftiMasker, MultiNiftiLabelsMasker
+from nilearn.maskers import NiftiMasker, NiftiLabelsMasker
 from nilearn.interfaces.fmriprep import load_confounds_strategy
 from pathlib import Path
 from tqdm import tqdm
@@ -109,14 +109,14 @@ def gigaconnectome_dataset(sourcedata_dir, processed_dir, arrow_dir):
         Path(f"{processed_dir}.a424").mkdir(exist_ok=True, parents=True)
         complete_labels = (np.arange(424)+1).tolist()
 
-        atlas_masker = MultiNiftiLabelsMasker(
+        atlas_masker = NiftiLabelsMasker(
             labels_img=files('hfplayground') / ATLAS_FILE,
             labels=complete_labels,
             mask_img=mni_mask, verbose=3
         ).fit()  # no scaling here
-        parcellated_timeseries = atlas_masker.transform(niis_to_extract)
 
-        for ts_path, seg_ts in tqdm(zip(ts_file_paths, parcellated_timeseries), desc="save time series..."):
+        for ts_path, seg_ts in tqdm(zip(ts_file_paths, niis_to_extract), desc="save time series..."):
+            seg_ts = atlas_masker.transform(seg_ts)
             seg_ts = pd.DataFrame(seg_ts, columns=[int(l) for l in atlas_masker.labels_])
             seg_ts = seg_ts.reindex(columns=complete_labels)
             seg_ts.fillna("n/a", inplace=True)
@@ -171,7 +171,7 @@ def brain_region_coord_to_arrow():
     coords_dataset = Dataset.from_pandas(coords_pd)
     coords_dataset.save_to_disk(
         dataset_path=files('hfplayground') / "resource/brainlm/atlases/brainregion_coordinates.arrow")
-    
+
 
 def resample_atlas(nii_file, output_dir):
     fname = os.path.basename(nii_file)
