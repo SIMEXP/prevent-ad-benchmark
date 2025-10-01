@@ -17,7 +17,7 @@ except ImportError:
 import click
 
 
-timeseries_length = 160
+timeseries_length = 140
 
 
 model_arguments = {  # BrainLM/train.py::ModelArguments
@@ -88,8 +88,8 @@ def main(inputs_path, image_column_name, outputs_path, model_path):
 
             attn_cls_token = get_attention_cls_token(encoder_output.attentions)
             list_subject_id.append(recording['participant_id'])
-            list_sex.append(recording['Gender'])
-            list_ageclass.append(recording['Child_Adult'])
+            list_sex.append(recording['Sex'])  # need refactor
+            list_ageclass.append(recording['Candidate_Age'])  # need refactor
             list_attn_cls_tokens.append(attn_cls_token)
             list_cls_tokens.append(cls_token)
             all_embeddings.append(embedding)
@@ -111,8 +111,8 @@ def main(inputs_path, image_column_name, outputs_path, model_path):
 
     results = {
         'participant_id': list_subject_id,
-        'Gender': list_sex,
-        'Child_Adult': list_ageclass,
+        'Sex': list_sex,   # need refactor
+        'Candidate_Age': list_ageclass,   # need refactor
         'cls_token': list_attn_cls_tokens,
         'cls_embedding': cls_embeds,
         'mean_embedding': all_mean_embeddings,

@@ -19,7 +19,7 @@ denoise_strategy = {
     'motion': 'basic',
     'global_signal': 'basic',
 }
-ts_min_length = 180
+ts_min_length = 150
 phenotype_mapper = {
     'filepath': "data/source/dataset-preventad_version-8.1internal_pipeline-gigapreprocess2/dataset-preventad81internal_desc-sexage_pheno.tsv",
     'index_col': "identifier",
@@ -128,8 +128,13 @@ def gigaconnectome_dataset(sourcedata_dir, processed_dir, arrow_dir):
 
     convert_data = ['Sex', 'Candidate_Age']
     phenotype = pd.read_csv("data/source/dataset-preventad_version-8.1internal_pipeline-gigapreprocess2/dataset-preventad81internal_desc-sexage_pheno.tsv", index_col="identifier", sep='\t')
-
-    timeseries_files = list(Path(f"{processed_dir}.a424").glob('*seg-*_timeseries.tsv'))
+    # hard coded filter....
+    phenotype = phenotype.loc[phenotype['cerebellum_coverage']>0.75, :]
+    phenotype = phenotype.loc[phenotype['proportion_kept']>0.5, :]
+    phenotype = phenotype.loc[phenotype['ses'] == "BL00", :]
+    phenotype = phenotype.loc[phenotype['run'] == 1, :]
+    timeseries_files = [Path(f"{processed_dir}.a424") / f'{identifier}_seg-{seg_name}_desc-{denoise_strategy_name}_timeseries.tsv' for identifier in phenotype.index]
+    # timeseries_files = list(Path(f"{processed_dir}.a424").glob('*seg-*_timeseries.tsv'))
     timeseries_files.sort()
     dataset_dict = {
         "robustscaler_timeseries": [],
@@ -149,7 +154,8 @@ def gigaconnectome_dataset(sourcedata_dir, processed_dir, arrow_dir):
         # they filled missing values with 0, so we do the same..... this is bad
         seg_ts_robustscaler = np.nan_to_num(seg_ts_robustscaler, nan=0.0, posinf=0.0, neginf=0.0)
         seg_ts_z = (seg_ts - np.mean(seg_ts, axis=0)) / np.std(seg_ts, axis=0)
-        participant_id = file_path.stem.split('_')[0]
+        # participant_id = file_path.stem.split('_')[0]
+        participant_id = Path(file_path).stem.split('_seg')[0]
         dataset_dict["raw_timeseries"].append(seg_ts)
         dataset_dict["robustscaler_timeseries"].append(seg_ts_robustscaler)
         dataset_dict["zscore_timeseries"].append(seg_ts_z)

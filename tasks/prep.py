@@ -20,17 +20,17 @@ def atlas(c):
 
 @invoke.task
 def brainlm_workflow_timeseries(c):
-    denoise_dataset(
-        "./data/source/dataset-preventad_version-8.1internal_pipeline-gigapreprocess2/mri/wave1/fmriprep-20.2.8lts",
-        "data/interim/dataset-preventad.brainlm",
-        grand_mean_scale=False
-    )
-    c.run("mkdir -p ./data/interim/dataset-preventad.brainlm.a424")
-    convert_fMRIvols_to_A424(
-        "./data/source/dataset-preventad_version-8.1internal_pipeline-gigapreprocess2/mri/wave1/fmriprep-20.2.8lts",
-        "./data/interim/dataset-preventad.brainlm.a424",
-        dataset_name='preventad'
-    )
+    # denoise_dataset(
+    #     "./data/source/dataset-preventad_version-8.1internal_pipeline-gigapreprocess2/mri/wave1/fmriprep-20.2.8lts",
+    #     "data/interim/dataset-preventad.brainlm",
+    #     grand_mean_scale=False
+    # )
+    # c.run("mkdir -p ./data/interim/dataset-preventad.brainlm.a424")
+    # convert_fMRIvols_to_A424(
+    #     "./data/source/dataset-preventad_version-8.1internal_pipeline-gigapreprocess2/mri/wave1/fmriprep-20.2.8lts",
+    #     "./data/interim/dataset-preventad.brainlm.a424",
+    #     dataset_name='preventad'
+    # )
     c.run("mkdir -p ./data/processed/dataset-preventad.brainlm.arrow")
     convert_to_arrow_datasets(
         "./data/interim/dataset-preventad.brainlm.a424",

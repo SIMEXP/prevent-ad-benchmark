@@ -82,7 +82,7 @@ def convert_fMRIvols_to_A424(data_path, output_path, dataset_name='development_f
         fn = os.path.join(output_path, f'{save_name}.dat')
         if Path(fn).exists():
             continue
-        
+
         # Load images and labels
         if ".nii.gz" in f:
             print(f'Loading 4D image from {file_path}')
@@ -146,21 +146,25 @@ def convert_to_arrow_datasets(uk_biobank_dir, save_path,  dataset_name='developm
         save_path: concatenation of dataset save directory and arrow dataset name
     """
     mapper = DATASET_MAPPER[dataset_name]['phenotype']
+    phenotype = pd.read_csv(mapper['filepath'], index_col=mapper['index_col'], sep='\t')
 
-    # --- Train/val/test Split ---#
-    print("FMRI Data Arrow Conversion Starting...")
-    # Assuming that filename is patient ID, thus each file with unique name is a separate patient.
-    all_dat_files = os.listdir(uk_biobank_dir)
-    all_dat_files = [filename for filename in all_dat_files if ".dat" in filename]
-    try:
-        all_dat_files.remove("A424_Coordinates.dat")
-        print('A424_Coordinates was removed from the list')
-    except ValueError:
-        print("There's no A24 Coordinates dat file")
-    all_dat_files.sort()  # Sorted in ascending order, first 80% will be train. Assuming no bias in patient order
+    if dataset_name == 'development_fmri':
+        # Assuming that filename is patient ID, thus each file with unique name is a separate patient.
+        all_dat_files = os.listdir(uk_biobank_dir)
+        all_dat_files = [filename for filename in all_dat_files if ".dat" in filename]
+        all_dat_files.sort()  # Sorted in ascending order, first 80% will be train. Assuming no bias in patient order
+    else:
+        # filter base on cerebellum coverage and other bids fileters
+        phenotype = phenotype.loc[phenotype['cerebellum_coverage']>0.75, :]
+        phenotype = phenotype.loc[phenotype['proportion_kept']>0.5, :]
+        phenotype = phenotype.loc[phenotype['ses'] == "BL00", :]  # hard coding for baseline for now
+        phenotype = phenotype.loc[phenotype['run'] == 1, :]
+        all_dat_files = [f'{identifier}_space-MNI152NLin2009cAsym_desc-preproc_bold.dat' for identifier in phenotype.index]
 
     train_split_idx = len(all_dat_files)
     train_files = all_dat_files[:train_split_idx]
+    # --- Train/val/test Split ---#
+    print("FMRI Data Arrow Conversion Starting...")
     sh_35 = 0
     sh_less = 0
     for idx,file in enumerate(tqdm(all_dat_files)):
@@ -261,7 +265,6 @@ def convert_to_arrow_datasets(uk_biobank_dir, save_path,  dataset_name='developm
         "participant_id": [],
     }
     # Load phenotype data
-    phenotype = pd.read_csv(mapper['filepath'], index_col=mapper['index_col'], sep='\t')
     convert_data = mapper['convert_data']
     for col in convert_data:
         train_dataset_dict[col] = []
@@ -377,7 +380,7 @@ def convert_to_arrow_datasets(uk_biobank_dir, save_path,  dataset_name='developm
 
     arrow_train_dataset = Dataset.from_dict(train_dataset_dict)
     arrow_train_dataset.save_to_disk(
-        dataset_path=os.path.join(save_path)
+        dataset_path=save_path
     )
 
     # # --- Save Brain Region Coordinates Into Another Arrow Dataset ---#

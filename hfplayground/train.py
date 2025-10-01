@@ -21,13 +21,12 @@ try:
 except ImportError:
     print('not using flash attention')
 
-# preprocessing = "development_fmri_gigaconnectome_a424"
-preprocessing = "development_fmri_brainlm_a424"
-timeseries_length = 160
+
+timeseries_length = 140
 
 image_column_name_kw = {
-    "development_fmri_gigaconnectome_a424": "robustscaler_timeseries",
-    "development_fmri_brainlm_a424": "Subtract_Mean_Divide_Global_STD_Normalized_Recording"  # this works
+    "gigaconnectome": "robustscaler_timeseries",
+    "brainlm": "Subtract_Mean_Divide_Global_STD_Normalized_Recording"  # this works
 }
 
 model_arguments = {  # BrainLM/train.py::ModelArguments
@@ -58,9 +57,13 @@ def main(inputs_path, image_column_name, outputs_path, model_params):
     def transform_func(batch):
         return timeseires_to_images(batch, **timeseires_to_images_kargs)
 
-    fmri_ds = load_from_disk(inputs_path).class_encode_column("Child_Adult")
+    fmri_ds = load_from_disk(inputs_path).class_encode_column("Sex")
+    fmri_ds = load_from_disk(inputs_path)
     # 80% train, 20% test
-    train_test = fmri_ds.train_test_split(train_size=0.8, stratify_by_column='Child_Adult')
+    train_test = fmri_ds.train_test_split(
+        train_size=0.8,
+        stratify_by_column='Sex'
+    )
     # gather everyone if you want to have a single DatasetDict
     train_test_dataset = DatasetDict({
         'train': train_test['train'],
