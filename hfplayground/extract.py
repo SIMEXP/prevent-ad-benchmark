@@ -1,4 +1,5 @@
 # cleaned up for using published weights for direct transfer with CLS token
+
 from transformers import ViTMAEConfig
 from datasets import load_from_disk, Dataset
 import numpy as np
