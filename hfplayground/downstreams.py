@@ -36,7 +36,7 @@ def load_prediction_targets(features_path):
 
     # return all labels
     return {
-        'sex': features['Sex'], 
+        'sex': features['Sex'],
         'age': (np.array(features['Candidate_Age']) / 12).tolist(),
         'splifhalfage': young_old,
         'progess2mci': pheno_df['progess_to_mci'].tolist(),
@@ -58,31 +58,31 @@ def get_baseline_data(timeseries_length=140):
 
 
 def svm_pipeline(x, y):
-   
+
     if isinstance(y[0], str):
         le = LabelEncoder()
         y = le.fit_transform(y)
 
         pipe = Pipeline([
-            ('scaler', StandardScaler()), 
-            ('pca', PCA(n_components=75)), 
+            ('scaler', StandardScaler()),
+            ('pca', PCA(n_components=75)),
             ('svc', SVC(C=1, class_weight='balanced'))
         ])
         scoring = {
-            'acc': 'accuracy', 
-            'auc': 'roc_auc', 
+            'acc': 'accuracy',
+            'auc': 'roc_auc',
             'f1': 'f1'
         }
         cv = StratifiedShuffleSplit(n_splits=N_SPLITS, random_state=1)
         return cross_validate(pipe, x, y, cv=cv, scoring=scoring)
     else:
         pipe = Pipeline([
-            ('scaler', StandardScaler()), 
-            ('pca', PCA(n_components=75)), 
+            ('scaler', StandardScaler()),
+            ('pca', PCA(n_components=75)),
             ('svc', SVR())
         ])
         scoring = {
-            'nrmse': 'neg_root_mean_squared_error', 
+            'nrmse': 'neg_root_mean_squared_error',
             'nmae': 'neg_mean_absolute_error',
             'r2': 'r2'
         }
@@ -91,31 +91,31 @@ def svm_pipeline(x, y):
 
 
 def linear_pipeline(x, y):
-   
+
     if isinstance(y[0], str):
         le = LabelEncoder()
         y = le.fit_transform(y)
 
         pipe = Pipeline([
-            ('scaler', StandardScaler()), 
-            ('pca', PCA(n_components=75)), 
+            ('scaler', StandardScaler()),
+            ('pca', PCA(n_components=75)),
             ('logistic_reg', LogisticRegression())
         ])
         scoring = {
-            'acc': 'accuracy', 
-            'auc': 'roc_auc', 
+            'acc': 'accuracy',
+            'auc': 'roc_auc',
             'f1': 'f1'
         }
         cv = StratifiedShuffleSplit(n_splits=N_SPLITS, random_state=1)
         return cross_validate(pipe, x, y, cv=cv, scoring=scoring)
     else:
         pipe = Pipeline([
-            ('scaler', StandardScaler()), 
-            ('pca', PCA(n_components=75)), 
+            ('scaler', StandardScaler()),
+            ('pca', PCA(n_components=75)),
             ('linear_reg', LinearRegression())
         ])
         scoring = {
-            'nrmse': 'neg_root_mean_squared_error', 
+            'nrmse': 'neg_root_mean_squared_error',
             'nmae': 'neg_mean_absolute_error',
             'r2': 'r2'
         }
@@ -126,6 +126,9 @@ def linear_pipeline(x, y):
 def baseline_experiment() -> None:
     ts, fc = get_baseline_data(timeseries_length=140)
     labels = load_prediction_targets(BASELINE_FEAT)
+    if not Path(f'outputs/downstreams/baseline/').exists():
+        Path(f'outputs/downstreams/baseline/').mkdir(parents=True)
+
     for bn_feat, feat_name in zip((ts, fc), ('timeseries', 'connectivity')):
         for target_name in ['sex', 'age', 'splifhalfage', 'progess2mci']:
             svm_output_path = f'outputs/downstreams/baseline/x-{feat_name}_y-{target_name}_svm_prediction.tsv'
@@ -139,12 +142,12 @@ def baseline_experiment() -> None:
             if Path(linear_output_path).exists():
                 print(f"{linear_output_path} exists, skip")
                 continue
-            linear_scores = svm_pipeline(bn_feat, labels[target_name])
+            linear_scores = linear_pipeline(bn_feat, labels[target_name])
             pd.DataFrame(linear_scores).to_csv(linear_output_path, sep='\t')
 
 
 def brainlm_experiment(features_path: Path, feat_name: str) -> None:
-    features = np.array(load_from_disk(features_path)['feat_name']).squeeze()
+    features = np.array(load_from_disk(features_path)[feat_name]).squeeze()
     if not Path(f'outputs/downstreams/{p.name}/').exists():
         Path(f'outputs/downstreams/{p.name}/').mkdir(parents=True)
 
@@ -161,12 +164,17 @@ def brainlm_experiment(features_path: Path, feat_name: str) -> None:
         if Path(linear_output_path).exists():
             print(f"{linear_output_path} exists, skip")
             continue
-        linear_scores = svm_pipeline(features, labels[target_name])
+        linear_scores = linear_pipeline(features, labels[target_name])
         pd.DataFrame(linear_scores).to_csv(linear_output_path, sep='\t')
 
 
 if __name__ == "__main__":
     baseline_experiment()
+
     for p in Path("./outputs/").glob("*finetune*"):
+        for feat_name in ['cls_token', 'cls_embedding']:
+            brainlm_experiment(p, feat_name)
+
+    for p in Path("./outputs/").glob("*direct*"):
         for feat_name in ['cls_token', 'cls_embedding']:
             brainlm_experiment(p, feat_name)
