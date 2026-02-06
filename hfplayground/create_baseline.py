@@ -1,7 +1,6 @@
 import re
 import numpy as np
 import pandas as pd
-import torch
 from sklearn.decomposition import PCA
 from datasets import load_from_disk
 from nilearn.connectome import ConnectivityMeasure
@@ -17,12 +16,6 @@ from pathlib import Path
 BASELINE_FEAT = "./outputs/brainlm.vitmae_650M.direct_transfer.gigaconnectome"
 ALL_PHENO = "./data/source/dataset-preventad_version-8.1internal_pipeline-gigapreprocess2/dataset-preventad81internal_desc-subjlvltargets_pheno.tsv"
 N_SPLITS = 100
-
-# BrainHarmonix paths
-BRAINHARMONIX_DATASET = "./data/processed/dataset-preventad.brainharmonix.NoGrandmeanScaling.arrow"
-BRAINHARMONIX_FMRI_EMB = "./data/processed/dataset-preventad.brainharmonix.fmri_embeddings.pt"
-BRAINHARMONIX_T1_EMB = "./data/processed/dataset-preventad.brainharmonix.t1_embeddings.pt"
-BRAINHARMONIX_HARMONIZER_EMB = "./data/processed/dataset-preventad.brainharmonix.harmonizer_embeddings.pt"
 
 
 def load_prediction_targets(features_path):
@@ -62,60 +55,6 @@ def get_baseline_data(timeseries_length=140):
     ts = [np.array(example).reshape(3, 424, timeseries_length)[0].T for example in features['padded_recording']]
     fc = correlation_baseline.fit_transform(ts)
     return ts_flatten, fc
-
-
-def load_brainharmonix_targets():
-    """Load prediction targets from BrainHarmonix dataset."""
-    features = load_from_disk(BRAINHARMONIX_DATASET)
-
-    # load phenotype for MCI progression
-    pheno_df = pd.read_csv(ALL_PHENO, sep='\t', header=0, index_col=0, na_values="n/a")
-    arrow_feature_participant_id = [re.search(r"sub-(MTL\d{4})_", stem)[1] for stem in features['participant_id']]
-    pheno_df = pheno_df.loc[arrow_feature_participant_id, :]
-
-    # find median age for split
-    age_med = np.median(features['Candidate_Age'])
-    young_old = ['young' if age <= age_med else 'old' for age in features['Candidate_Age']]
-
-    # convert MCI_onset_age to binary labels
-    pheno_df['progess_to_mci'] = pheno_df['MCI_onset_age'].apply(lambda x: 'yes' if not np.isnan(x) else 'no')
-
-    return {
-        'sex': features['Sex'],
-        'age': (np.array(features['Candidate_Age']) / 12).tolist(),
-        'splifhalfage': young_old,
-        'progess2mci': pheno_df['progess_to_mci'].tolist(),
-    }
-
-
-def get_brainharmonix_data():
-    """Load BrainHarmonix embeddings and pool to fixed-size vectors.
-
-    Returns:
-        dict: Feature name -> (N, D) array
-            - fmri_mean: Mean pooled fMRI embeddings (N, 768)
-            - t1_mean: Mean pooled T1 embeddings (N, 768)
-            - harmonizer_cls: CLS token from harmonizer (N, 768)
-            - harmonizer_latent_mean: Mean of latent tokens (N, 768)
-    """
-    features = {}
-
-    # fMRI embeddings: (N, 7200, 768) -> mean pool -> (N, 768)
-    fmri_emb = torch.load(BRAINHARMONIX_FMRI_EMB, map_location="cpu", weights_only=True)
-    features['fmri_mean'] = fmri_emb.mean(dim=1).numpy()
-
-    # T1 embeddings: (N, 1200, 768) -> mean pool -> (N, 768)
-    t1_emb = torch.load(BRAINHARMONIX_T1_EMB, map_location="cpu", weights_only=True)
-    features['t1_mean'] = t1_emb.mean(dim=1).numpy()
-
-    # Harmonizer embeddings: (N, 129, 768)
-    # - CLS token at index 0
-    # - Latent tokens at indices 1:129
-    harmonizer_emb = torch.load(BRAINHARMONIX_HARMONIZER_EMB, map_location="cpu", weights_only=True)
-    features['harmonizer_cls'] = harmonizer_emb[:, 0, :].numpy()
-    features['harmonizer_latent_mean'] = harmonizer_emb[:, 1:, :].mean(dim=1).numpy()
-
-    return features
 
 
 def svm_pipeline(x, y):
@@ -229,109 +168,13 @@ def brainlm_experiment(features_path: Path, feat_name: str) -> None:
         pd.DataFrame(linear_scores).to_csv(linear_output_path, sep='\t')
 
 
-def brainharmonix_experiment(
-    harmonizer_emb_path: str = BRAINHARMONIX_HARMONIZER_EMB,
-    output_dir: str = 'outputs/downstreams/brainharmonix/',
-    fmri_emb_path: str = None,
-    t1_emb_path: str = None,
-) -> None:
-    """Run downstream experiments with BrainHarmonix features.
-
-    Args:
-        harmonizer_emb_path: Path to harmonizer embeddings .pt file
-        output_dir: Output directory for results
-        fmri_emb_path: Path to fMRI embeddings (optional, uses default if None)
-        t1_emb_path: Path to T1 embeddings (optional, uses default if None)
-    """
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Load features
-    features = {}
-
-    # fMRI embeddings (optional)
-    fmri_path = fmri_emb_path or BRAINHARMONIX_FMRI_EMB
-    if Path(fmri_path).exists():
-        fmri_emb = torch.load(fmri_path, map_location="cpu", weights_only=True)
-        features['fmri_mean'] = fmri_emb.mean(dim=1).numpy()
-
-    # T1 embeddings (optional)
-    t1_path = t1_emb_path or BRAINHARMONIX_T1_EMB
-    if Path(t1_path).exists():
-        t1_emb = torch.load(t1_path, map_location="cpu", weights_only=True)
-        features['t1_mean'] = t1_emb.mean(dim=1).numpy()
-
-    # Harmonizer embeddings (required)
-    harmonizer_emb = torch.load(harmonizer_emb_path, map_location="cpu", weights_only=True)
-    features['harmonizer_cls'] = harmonizer_emb[:, 0, :].numpy()
-    features['harmonizer_latent_mean'] = harmonizer_emb[:, 1:, :].mean(dim=1).numpy()
-
-    labels = load_brainharmonix_targets()
-
-    for feat_name, feat_data in features.items():
-        print(f"Running experiments with {feat_name} features, shape: {feat_data.shape}")
-
-        for target_name in ['sex', 'age', 'splifhalfage', 'progess2mci']:
-            # SVM pipeline
-            svm_output_path = output_dir / f'x-{feat_name}_y-{target_name}_svm_prediction.tsv'
-            if svm_output_path.exists():
-                print(f"{svm_output_path} exists, skip")
-            else:
-                print(f"  Running SVM for {target_name}...")
-                svm_scores = svm_pipeline(feat_data, labels[target_name])
-                pd.DataFrame(svm_scores).to_csv(svm_output_path, sep='\t')
-
-            # Linear pipeline
-            linear_output_path = output_dir / f'x-{feat_name}_y-{target_name}_linear_prediction.tsv'
-            if linear_output_path.exists():
-                print(f"{linear_output_path} exists, skip")
-            else:
-                print(f"  Running Linear for {target_name}...")
-                linear_scores = linear_pipeline(feat_data, labels[target_name])
-                pd.DataFrame(linear_scores).to_csv(linear_output_path, sep='\t')
-
-
 if __name__ == "__main__":
-    import argparse
+    baseline_experiment()
 
-    parser = argparse.ArgumentParser(description="Run downstream prediction experiments")
-    parser.add_argument(
-        "--experiment",
-        type=str,
-        choices=["all", "baseline", "brainharmonix", "brainlm"],
-        default="all",
-        help="Which experiment to run (default: all)",
-    )
-    parser.add_argument(
-        "--harmonizer-emb",
-        type=str,
-        default=None,
-        help="Path to harmonizer embeddings .pt file (for brainharmonix experiment)",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        default=None,
-        help="Output directory for results",
-    )
-    args = parser.parse_args()
+    for p in Path("./outputs/").glob("*finetune*"):
+        for feat_name in ['cls_token', 'cls_embedding']:
+            brainlm_experiment(p, feat_name)
 
-    if args.experiment in ["all", "baseline"]:
-        baseline_experiment()
-
-    if args.experiment in ["all", "brainharmonix"]:
-        harmonizer_path = args.harmonizer_emb or BRAINHARMONIX_HARMONIZER_EMB
-        output_dir = args.output_dir or 'outputs/downstreams/brainharmonix/'
-        brainharmonix_experiment(
-            harmonizer_emb_path=harmonizer_path,
-            output_dir=output_dir,
-        )
-
-    if args.experiment in ["all", "brainlm"]:
-        for p in Path("./outputs/").glob("*finetune*"):
-            for feat_name in ['cls_token', 'cls_embedding']:
-                brainlm_experiment(p, feat_name)
-
-        for p in Path("./outputs/").glob("*direct*"):
-            for feat_name in ['cls_token', 'cls_embedding']:
-                brainlm_experiment(p, feat_name)
+    for p in Path("./outputs/").glob("*direct*"):
+        for feat_name in ['cls_token', 'cls_embedding']:
+            brainlm_experiment(p, feat_name)

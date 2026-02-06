@@ -34,6 +34,15 @@ uv sync --extra build --extra compile
 You can either activate the environment with `source .venv/bin/activate` and use this environment in the conventional python way,
 or prepend any command you want to run with `uv run` to activate the environment.
 
+### Post-install fix for brainharmonix
+
+The `brainharmonix` package includes an internal `datasets` module that conflicts with the HuggingFace `datasets` library. After running `uv sync`, remove it:
+
+```bash
+rm -rf .venv/lib/python3.12/site-packages/brainharmonix/datasets
+```
+
+This needs to be re-run after any `uv sync` that reinstalls brainharmonix.
 
 ## Download models and example data
 

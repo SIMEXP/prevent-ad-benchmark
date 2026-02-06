@@ -8,7 +8,6 @@ dependencies = [
     "setuptools",
     "ninja",
     "packaging",
-    "datasets>=3.2.0",
     "huggingface-hub[hf-transfer]>=0.28.1",
     "invoke>=2.2.0",
     "ipython>=8.32.0",
@@ -23,13 +22,17 @@ dependencies = [
     "torchvision",
     "torchaudio",
     "transformers[torch]>=4.48.3",
+    "brainharmonix",
     "evaluate>=0.4.4",
     "click>=8.2.1",
+    "timm>=1.0.24",
+    "einops>=0.8.1",
+    "flash-attn>=2.7.4.post1",
+    "datasets>=3.2.0",
 ]
 
 [project.optional-dependencies]
 build = ["torch", "setuptools", "packaging"]
-compile = ["flash_attn<2.8.0"]
 
 [tool.uv]
 no-build-isolation-package = ["flash_attn"]
@@ -38,6 +41,10 @@ no-build-isolation-package = ["flash_attn"]
 name = "flash-attn"
 version="2.7.4"
 requires-dist = ["torch", "einops"]
+
+[tool.uv.sources]
+brainharmonix = { git = "https://github.com/MedARC-AI/Brain-Harmony.git", rev = "5398f8f5540222973cf82d13ac1eb4c4b38af636" }
+
 
 [build-system]
 requires = ["hatchling"]

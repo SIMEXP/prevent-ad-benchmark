@@ -41,8 +41,9 @@ def denoise_dataset(sourcedata_dir, processed_dir, grand_mean_scale=False):
     func_paths = []
     for idx in phenotype.index:
         cur = Path(sourcedata_dir) / '/'.join(idx.split('_')[:2]) / f"func/{idx}_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz"
-        func_paths.append(str(cur))
-
+        if 'ses-BL' in idx:
+            func_paths.append(str(cur))
+    print(f"Found {len(func_paths)} fMRI files to denoise.")
     # Check if the processed directory exists
     raw_to_preproc = []
     niis_preproc_path = []
@@ -58,7 +59,8 @@ def denoise_dataset(sourcedata_dir, processed_dir, grand_mean_scale=False):
         print("No raw data to preprocess.")
         return
     mni_mask = datasets.fetch_icbm152_2009()['mask']
-    mni_mask = resample_atlas(mni_mask, '/tmp/')
+    mni_mask = resample_atlas(mni_mask, os.environ["SLURM_TMPDIR"])
+    print(f"Using MNI mask at {mni_mask}")
 
     Path(f"{processed_dir}").mkdir(exist_ok=True, parents=True)
     # I did not do signal normalisation here. It will throw brainlm results off.
@@ -67,10 +69,10 @@ def denoise_dataset(sourcedata_dir, processed_dir, grand_mean_scale=False):
         standardize=grand_mean_scale,
         smoothing_fwhm=None, # voxel: 4 mm, smoothing kernel: 1.5 - 3 times
         verbose=2
-    )
+    ).fit()
     confounds, sample_masks = load_confounds_strategy(img_files=raw_to_preproc, **denoise_strategy)
     for preproc_path, raw, conf, sm in tqdm(zip(niis_preproc_path, raw_to_preproc, confounds, sample_masks), desc="Save denoising data..."):
-        fd = masker.fit_transform(raw, confounds=conf, sample_mask=sm)
+        fd = masker.transform(raw, confounds=conf, sample_mask=sm)
         nii = masker.inverse_transform(fd)
         nii.to_filename(preproc_path)
 
@@ -87,7 +89,8 @@ def gigaconnectome_dataset(sourcedata_dir, processed_dir, arrow_dir):
         cur = Path(sourcedata_dir) / '/'.join(idx.split('_')[:2]) / f"func/{idx}_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz"
         func_paths.append(str(cur))
     mni_mask = datasets.fetch_icbm152_2009()['mask']
-    mni_mask = resample_atlas(mni_mask, '/tmp/')
+    mni_mask = resample_atlas(mni_mask, os.environ["SLURM_TMPDIR"])
+    print(mni_mask)
     # quick preprocessing
 
     # Check if the processed directory exists

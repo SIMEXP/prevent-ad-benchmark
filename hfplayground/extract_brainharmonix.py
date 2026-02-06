@@ -1,0 +1,311 @@
+#!/usr/bin/env python3
+"""Extract embeddings from BrainHarmonix models.
+
+This script extracts embeddings from three BrainHarmonix model components:
+1. fMRI encoder (Harmonix-F): Encodes fMRI time series → (N, 7200, 768)
+2. T1 encoder (Harmonix-S): Encodes T1 structural images → (N, 1200, 768)
+3. Harmonizer: Fuses fMRI + T1 into joint representation → (N, 129, 768)
+
+The harmonizer output contains 129 tokens: 1 CLS token + 128 latent tokens that
+compress the multimodal information from both fMRI and T1.
+
+Usage:
+    python extract_brainharmonix.py --dataset data/processed/dataset.arrow --output-dir outputs/
+
+References:
+    - BrainHarmony: https://github.com/hzlab/Brain-Harmony
+"""
+
+import argparse
+from pathlib import Path
+
+import torch
+from tqdm import tqdm
+
+import brainharmonix.libs.model as model
+import brainharmonix.libs.position_embedding as pos_embeds
+from brainharmonix.configs.harmonizer.stage0_embed import conf_embed_downstream
+from brainharmonix.modules.harmonizer.stage1_pretrain.models import (
+    onetokreg_vit_base_patch16,
+)
+from brainharmonix.modules.harmonizer.util.t1_encoder import mae_vit_base_patch16
+
+from hfplayground.models.brainharmonix.utils import BrainHarmonixDataset
+
+
+# Default paths (relative to project root)
+DEFAULT_GRADIENT_PATH = "BrainHarmony/brainharmony_pos_embed/gradient_mapping_400.csv"
+DEFAULT_GEO_HARM_PATH = "BrainHarmony/brainharmony_pos_embed/schaefer400_roi_eigenmodes.csv"
+DEFAULT_HARMONIZER_CKPT = "models/brain-harmonix/harmonizer/model.pth"
+DEFAULT_FMRI_ENCODER_CKPT = "models/brain-harmonix/harmonix-f/model.pth"
+DEFAULT_T1_ENCODER_CKPT = "models/brain-harmonix/harmonix-s/model.pth"
+
+
+def get_pos_embed(name: str, **kwargs):
+    """Create position embedding module by name."""
+    return getattr(pos_embeds, name)(kwargs["model_args"])
+
+
+def get_encoder(pos_embed, cls_token, name: str, attn_mode: str = "sdpa", **kwargs):
+    """Create encoder model by name with position embedding."""
+    return getattr(model, name)(
+        pos_embed=pos_embed, cls_token=cls_token, attn_mode=attn_mode, **kwargs
+    )
+
+
+def load_harmonizer(checkpoint_path: str, device: torch.device) -> torch.nn.Module:
+    """Load the harmonizer model (fuses fMRI + T1 embeddings).
+
+    The harmonizer uses flash_attention_2 which requires fp16.
+    """
+    harmonizer = onetokreg_vit_base_patch16(
+        norm_pix_loss=True, img_size=(160, 192, 160), num_latent_tokens=128
+    )
+    state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)[
+        "model"
+    ]
+    harmonizer.load_state_dict(state_dict, strict=False)
+    return harmonizer.to(device).half().eval()
+
+
+def load_fmri_encoder(
+    checkpoint_path: str,
+    gradient_path: str,
+    geo_harm_path: str,
+    device: torch.device,
+) -> torch.nn.Module:
+    """Load the fMRI encoder (Harmonix-F).
+
+    Uses SDPA attention which supports fp32.
+    """
+    config = conf_embed_downstream.get_config()
+    config.pos_embed.model_args.gradient = str(gradient_path)
+    config.pos_embed.model_args.geo_harm = str(geo_harm_path)
+
+    pos_embed = get_pos_embed(**config.pos_embed)
+    encoder = get_encoder(pos_embed, None, **config.encoder)
+
+    # Load checkpoint (EMA weights)
+    state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    prefix = "encoder_ema."
+    state_dict = {
+        k[len(prefix) :]: v for k, v in state_dict.items() if k.startswith(prefix)
+    }
+    # Remove mismatched sincos position embeddings (will use learned ones)
+    state_dict.pop("pos_embed.emb_h_encoder", None)
+    state_dict.pop("pos_embed.emb_h_decoder", None)
+    encoder.load_state_dict(state_dict, strict=False)
+
+    return encoder.to(device).eval()
+
+
+def load_t1_encoder(checkpoint_path: str, device: torch.device) -> torch.nn.Module:
+    """Load the T1 encoder (Harmonix-S).
+
+    Uses flash_attention_2 which requires fp16.
+    """
+    encoder = mae_vit_base_patch16(img_size=(160, 192, 160))
+    state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)[
+        "model"
+    ]
+    encoder.load_state_dict(state_dict, strict=False)
+    return encoder.to(device).half().eval()
+
+
+def extract_embeddings(
+    dataloader: torch.utils.data.DataLoader,
+    fmri_encoder: torch.nn.Module,
+    t1_encoder: torch.nn.Module,
+    harmonizer: torch.nn.Module,
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Extract embeddings from all three model components.
+
+    Args:
+        dataloader: DataLoader yielding batches with 'fmri', 't1', 'attn_mask', 'patch_size'
+        fmri_encoder: Loaded fMRI encoder (fp32)
+        t1_encoder: Loaded T1 encoder (fp16)
+        harmonizer: Loaded harmonizer (fp16)
+        device: Device to run inference on
+
+    Returns:
+        Tuple of (fmri_embeddings, t1_embeddings, harmonizer_embeddings)
+    """
+    all_fmri = []
+    all_t1 = []
+    all_harmonizer = []
+
+    with torch.no_grad():
+        for batch in tqdm(dataloader, desc="Extracting embeddings"):
+            # fMRI encoder uses SDPA (fp32), T1/harmonizer use flash_attention_2 (fp16)
+            fmri = batch["fmri"].to(device)
+            attn_mask = batch["attn_mask"].to(device).bool()
+            patch_size = batch["patch_size"][0].item()
+            t1 = batch["t1"].to(device).half()
+
+            # fMRI embedding: (B, 7200, 768)
+            fmri_embed = fmri_encoder(fmri, patch_size, attention_mask=attn_mask)
+            all_fmri.append(fmri_embed.cpu())
+
+            # T1 embedding: (B, 1200, 768)
+            t1_embed = t1_encoder(t1)
+            all_t1.append(t1_embed.cpu().float())
+
+            # Harmonizer: fuses fMRI + T1 → (B, 129, 768)
+            # 129 = 1 CLS token + 128 latent tokens
+            combined_embed = torch.cat([fmri_embed.half(), t1_embed], dim=1)
+            # Note: harmonizer internally pads attn_mask for T1 (1200) and latent tokens (128)
+            # So we pass only the fMRI attention mask (7200)
+            harmonizer_embed, _ = harmonizer.forward_encoder(combined_embed, attn_mask)
+            all_harmonizer.append(harmonizer_embed.cpu().float())
+
+    return (
+        torch.cat(all_fmri, dim=0),
+        torch.cat(all_t1, dim=0),
+        torch.cat(all_harmonizer, dim=0),
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Extract embeddings from BrainHarmonix models",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    # Basic usage
+    python extract_brainharmonix.py --dataset data/processed/dataset.arrow
+
+    # Custom output directory
+    python extract_brainharmonix.py --dataset data.arrow --output-dir outputs/
+
+    # Custom checkpoint paths
+    python extract_brainharmonix.py --dataset data.arrow \\
+        --harmonizer-ckpt models/harmonizer.pth \\
+        --fmri-ckpt models/harmonix-f.pth \\
+        --t1-ckpt models/harmonix-s.pth
+        """,
+    )
+    parser.add_argument(
+        "--dataset",
+        type=Path,
+        required=True,
+        help="Path to Arrow dataset with fMRI and T1 data",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("data/processed"),
+        help="Output directory for embeddings (default: data/processed)",
+    )
+    parser.add_argument(
+        "--output-prefix",
+        type=str,
+        default="brainharmonix",
+        help="Prefix for output files (default: brainharmonix)",
+    )
+    parser.add_argument(
+        "--harmonizer-ckpt",
+        type=Path,
+        default=Path(DEFAULT_HARMONIZER_CKPT),
+        help=f"Path to harmonizer checkpoint (default: {DEFAULT_HARMONIZER_CKPT})",
+    )
+    parser.add_argument(
+        "--fmri-ckpt",
+        type=Path,
+        default=Path(DEFAULT_FMRI_ENCODER_CKPT),
+        help=f"Path to fMRI encoder checkpoint (default: {DEFAULT_FMRI_ENCODER_CKPT})",
+    )
+    parser.add_argument(
+        "--t1-ckpt",
+        type=Path,
+        default=Path(DEFAULT_T1_ENCODER_CKPT),
+        help=f"Path to T1 encoder checkpoint (default: {DEFAULT_T1_ENCODER_CKPT})",
+    )
+    parser.add_argument(
+        "--gradient-path",
+        type=Path,
+        default=Path(DEFAULT_GRADIENT_PATH),
+        help=f"Path to gradient mapping CSV (default: {DEFAULT_GRADIENT_PATH})",
+    )
+    parser.add_argument(
+        "--geo-harm-path",
+        type=Path,
+        default=Path(DEFAULT_GEO_HARM_PATH),
+        help=f"Path to geometric harmonics CSV (default: {DEFAULT_GEO_HARM_PATH})",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        help="Batch size for inference (default: 1)",
+    )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=4,
+        help="Number of dataloader workers (default: 4)",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda" if torch.cuda.is_available() else "cpu",
+        help="Device to use (default: cuda if available)",
+    )
+
+    args = parser.parse_args()
+
+    # Setup
+    device = torch.device(args.device)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Device: {device}")
+    print(f"Dataset: {args.dataset}")
+    print(f"Output directory: {args.output_dir}")
+
+    # Load models
+    print("\nLoading models...")
+    harmonizer = load_harmonizer(str(args.harmonizer_ckpt), device)
+    fmri_encoder = load_fmri_encoder(
+        str(args.fmri_ckpt), str(args.gradient_path), str(args.geo_harm_path), device
+    )
+    t1_encoder = load_t1_encoder(str(args.t1_ckpt), device)
+    print("Models loaded successfully")
+
+    # Load dataset
+    print("\nLoading dataset...")
+    dataset = BrainHarmonixDataset(str(args.dataset))
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+
+    # Extract embeddings
+    print("\nExtracting embeddings...")
+    fmri_embeds, t1_embeds, harmonizer_embeds = extract_embeddings(
+        dataloader, fmri_encoder, t1_encoder, harmonizer, device
+    )
+
+    print(f"\nfMRI embeddings shape: {fmri_embeds.shape}")
+    print(f"T1 embeddings shape: {t1_embeds.shape}")
+    print(f"Harmonizer embeddings shape: {harmonizer_embeds.shape}")
+
+    # Save embeddings
+    fmri_path = args.output_dir / f"{args.output_prefix}.fmri_embeddings.pt"
+    t1_path = args.output_dir / f"{args.output_prefix}.t1_embeddings.pt"
+    harmonizer_path = args.output_dir / f"{args.output_prefix}.harmonizer_embeddings.pt"
+
+    torch.save(fmri_embeds, fmri_path)
+    torch.save(t1_embeds, t1_path)
+    torch.save(harmonizer_embeds, harmonizer_path)
+
+    print(f"\nSaved embeddings to:")
+    print(f"  - {fmri_path}")
+    print(f"  - {t1_path}")
+    print(f"  - {harmonizer_path}")
+
+
+if __name__ == "__main__":
+    main()
