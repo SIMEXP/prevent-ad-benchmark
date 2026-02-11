@@ -1,8 +1,8 @@
 """Plot downstream prediction results.
 
 Usage:
-    uv run python hfplayground/plot_downstreams.py
-    uv run python hfplayground/plot_downstreams.py --output-dir figures/
+    preventad-plot
+    preventad-plot --output-dir figures/
 """
 import argparse
 import re
@@ -29,14 +29,16 @@ FEATURE_NAMES = {
 # Target display names
 TARGET_NAMES = {
     'sex': 'Sex',
-    'age': 'Age',
+    'age': 'Age (years)',
     'splifhalfage': 'Age (binary)',
     'progess2mci': 'MCI Progression',
+    'aps': 'Amyloid Probability Score',
+    'pet': 'Amyloid Index',
 }
 
-# Get project root (parent of hfplayground)
+# Get project root (src/preventad_benchmark/cli -> project root)
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent.parent.parent
 
 # Default input directories (absolute paths)
 DEFAULT_INPUT_DIRS = [
@@ -230,7 +232,7 @@ def plot_regression_results(df: pd.DataFrame, output_dir: Path = None) -> plt.Fi
 
     targets = df_reg['Target'].unique()
     metrics = ['rmse', 'mae', 'r2']
-    metric_labels = ['RMSE (years)', 'MAE (years)', 'R²']
+    metric_labels = ['RMSE', 'MAE', 'R²']
 
     n_targets = len(targets)
     fig, axes = plt.subplots(n_targets, 3, figsize=(14, 4 * n_targets))

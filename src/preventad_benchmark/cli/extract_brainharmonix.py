@@ -22,94 +22,23 @@ from pathlib import Path
 import torch
 from tqdm import tqdm
 
-import brainharmonix.libs.model as model
-import brainharmonix.libs.position_embedding as pos_embeds
-from brainharmonix.configs.harmonizer.stage0_embed import conf_embed_downstream
-from brainharmonix.modules.harmonizer.stage1_pretrain.models import (
-    onetokreg_vit_base_patch16,
+from preventad_benchmark.config import (
+    BRAINHARMONIX_CHECKPOINTS,
+    BRAINHARMONIX_POS_EMBED_PATHS,
 )
-from brainharmonix.modules.harmonizer.util.t1_encoder import mae_vit_base_patch16
+from preventad_benchmark.models.brainharmonix.loaders import (
+    load_fmri_encoder,
+    load_harmonizer,
+    load_t1_encoder,
+)
+from preventad_benchmark.models.brainharmonix.utils import BrainHarmonixDataset
 
-from hfplayground.models.brainharmonix.utils import BrainHarmonixDataset
-
-
-# Default paths (relative to project root)
-DEFAULT_GRADIENT_PATH = "BrainHarmony/brainharmony_pos_embed/gradient_mapping_400.csv"
-DEFAULT_GEO_HARM_PATH = "BrainHarmony/brainharmony_pos_embed/schaefer400_roi_eigenmodes.csv"
-DEFAULT_HARMONIZER_CKPT = "models/brain-harmonix/harmonizer/model.pth"
-DEFAULT_FMRI_ENCODER_CKPT = "models/brain-harmonix/harmonix-f/model.pth"
-DEFAULT_T1_ENCODER_CKPT = "models/brain-harmonix/harmonix-s/model.pth"
-
-
-def get_pos_embed(name: str, **kwargs):
-    """Create position embedding module by name."""
-    return getattr(pos_embeds, name)(kwargs["model_args"])
-
-
-def get_encoder(pos_embed, cls_token, name: str, attn_mode: str = "sdpa", **kwargs):
-    """Create encoder model by name with position embedding."""
-    return getattr(model, name)(
-        pos_embed=pos_embed, cls_token=cls_token, attn_mode=attn_mode, **kwargs
-    )
-
-
-def load_harmonizer(checkpoint_path: str, device: torch.device) -> torch.nn.Module:
-    """Load the harmonizer model (fuses fMRI + T1 embeddings).
-
-    The harmonizer uses flash_attention_2 which requires fp16.
-    """
-    harmonizer = onetokreg_vit_base_patch16(
-        norm_pix_loss=True, img_size=(160, 192, 160), num_latent_tokens=128
-    )
-    state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)[
-        "model"
-    ]
-    harmonizer.load_state_dict(state_dict, strict=False)
-    return harmonizer.to(device).half().eval()
-
-
-def load_fmri_encoder(
-    checkpoint_path: str,
-    gradient_path: str,
-    geo_harm_path: str,
-    device: torch.device,
-) -> torch.nn.Module:
-    """Load the fMRI encoder (Harmonix-F).
-
-    Uses SDPA attention which supports fp32.
-    """
-    config = conf_embed_downstream.get_config()
-    config.pos_embed.model_args.gradient = str(gradient_path)
-    config.pos_embed.model_args.geo_harm = str(geo_harm_path)
-
-    pos_embed = get_pos_embed(**config.pos_embed)
-    encoder = get_encoder(pos_embed, None, **config.encoder)
-
-    # Load checkpoint (EMA weights)
-    state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    prefix = "encoder_ema."
-    state_dict = {
-        k[len(prefix) :]: v for k, v in state_dict.items() if k.startswith(prefix)
-    }
-    # Remove mismatched sincos position embeddings (will use learned ones)
-    state_dict.pop("pos_embed.emb_h_encoder", None)
-    state_dict.pop("pos_embed.emb_h_decoder", None)
-    encoder.load_state_dict(state_dict, strict=False)
-
-    return encoder.to(device).eval()
-
-
-def load_t1_encoder(checkpoint_path: str, device: torch.device) -> torch.nn.Module:
-    """Load the T1 encoder (Harmonix-S).
-
-    Uses flash_attention_2 which requires fp16.
-    """
-    encoder = mae_vit_base_patch16(img_size=(160, 192, 160))
-    state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)[
-        "model"
-    ]
-    encoder.load_state_dict(state_dict, strict=False)
-    return encoder.to(device).half().eval()
+# Default paths for CLI argument defaults
+DEFAULT_GRADIENT_PATH = str(BRAINHARMONIX_POS_EMBED_PATHS["gradient"])
+DEFAULT_GEO_HARM_PATH = str(BRAINHARMONIX_POS_EMBED_PATHS["geo_harm"])
+DEFAULT_HARMONIZER_CKPT = str(BRAINHARMONIX_CHECKPOINTS["harmonizer"])
+DEFAULT_FMRI_ENCODER_CKPT = str(BRAINHARMONIX_CHECKPOINTS["fmri_encoder"])
+DEFAULT_T1_ENCODER_CKPT = str(BRAINHARMONIX_CHECKPOINTS["t1_encoder"])
 
 
 def extract_embeddings(
@@ -194,8 +123,8 @@ Examples:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("data/processed"),
-        help="Output directory for embeddings (default: data/processed)",
+        default=Path("outputs/embeddings/brainharmonix"),
+        help="Output directory for embeddings (default: outputs/embeddings/brainharmonix)",
     )
     parser.add_argument(
         "--output-prefix",
@@ -264,11 +193,9 @@ Examples:
 
     # Load models
     print("\nLoading models...")
-    harmonizer = load_harmonizer(str(args.harmonizer_ckpt), device)
-    fmri_encoder = load_fmri_encoder(
-        str(args.fmri_ckpt), str(args.gradient_path), str(args.geo_harm_path), device
-    )
-    t1_encoder = load_t1_encoder(str(args.t1_ckpt), device)
+    harmonizer = load_harmonizer(args.harmonizer_ckpt, device, mode="inference")
+    fmri_encoder = load_fmri_encoder(args.fmri_ckpt, args.gradient_path, args.geo_harm_path, device)
+    t1_encoder = load_t1_encoder(args.t1_ckpt, device, mode="inference")
     print("Models loaded successfully")
 
     # Load dataset

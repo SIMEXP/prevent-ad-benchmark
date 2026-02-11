@@ -41,23 +41,19 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset, random_split
 from tqdm import tqdm
 
-import brainharmonix.libs.model as model
-import brainharmonix.libs.position_embedding as pos_embeds
-from brainharmonix.configs.harmonizer.stage0_embed import conf_embed_downstream
-from brainharmonix.modules.harmonizer.stage1_pretrain.models import (
-    onetokreg_vit_base_patch16,
+from preventad_benchmark.config import (
+    BRAINHARMONIX_CHECKPOINTS,
+    BRAINHARMONIX_POS_EMBED_PATHS,
 )
-from brainharmonix.modules.harmonizer.util.t1_encoder import mae_vit_base_patch16
+from preventad_benchmark.models.brainharmonix.loaders import load_all_models
+from preventad_benchmark.models.brainharmonix.utils import BrainHarmonixDataset
 
-from hfplayground.models.brainharmonix.utils import BrainHarmonixDataset
-
-
-# Default paths
-DEFAULT_GRADIENT_PATH = "BrainHarmony/brainharmony_pos_embed/gradient_mapping_400.csv"
-DEFAULT_GEO_HARM_PATH = "BrainHarmony/brainharmony_pos_embed/schaefer400_roi_eigenmodes.csv"
-DEFAULT_HARMONIZER_CKPT = "models/brain-harmonix/harmonizer/model.pth"
-DEFAULT_FMRI_ENCODER_CKPT = "models/brain-harmonix/harmonix-f/model.pth"
-DEFAULT_T1_ENCODER_CKPT = "models/brain-harmonix/harmonix-s/model.pth"
+# Default paths for CLI argument defaults
+DEFAULT_GRADIENT_PATH = str(BRAINHARMONIX_POS_EMBED_PATHS["gradient"])
+DEFAULT_GEO_HARM_PATH = str(BRAINHARMONIX_POS_EMBED_PATHS["geo_harm"])
+DEFAULT_HARMONIZER_CKPT = str(BRAINHARMONIX_CHECKPOINTS["harmonizer"])
+DEFAULT_FMRI_ENCODER_CKPT = str(BRAINHARMONIX_CHECKPOINTS["fmri_encoder"])
+DEFAULT_T1_ENCODER_CKPT = str(BRAINHARMONIX_CHECKPOINTS["t1_encoder"])
 
 
 class MLPHead(nn.Module):
@@ -275,58 +271,17 @@ class FineTuneDataset(Dataset):
         return 1
 
 
-def get_pos_embed(name: str, **kwargs):
-    """Create position embedding module by name."""
-    return getattr(pos_embeds, name)(kwargs["model_args"])
-
-
-def get_encoder(pos_embed, cls_token, name: str, attn_mode: str = "sdpa", **kwargs):
-    """Create encoder model by name."""
-    return getattr(model, name)(
-        pos_embed=pos_embed, cls_token=cls_token, attn_mode=attn_mode, **kwargs
+def load_models(args, device: torch.device) -> tuple:
+    """Load all three model components using shared loaders."""
+    return load_all_models(
+        device=device,
+        mode="train",
+        harmonizer_ckpt=args.harmonizer_ckpt,
+        fmri_ckpt=args.fmri_ckpt,
+        t1_ckpt=args.t1_ckpt,
+        gradient_path=args.gradient_path,
+        geo_harm_path=args.geo_harm_path,
     )
-
-
-def load_models(args, device: torch.device, use_bfloat16: bool = True) -> tuple:
-    """Load all three model components.
-
-    Args:
-        args: Command line arguments
-        device: Target device
-        use_bfloat16: Use bfloat16 for training stability (default: True)
-    """
-    dtype = torch.bfloat16 if use_bfloat16 else torch.float16
-
-    # Harmonizer (bf16/fp16 for flash attention)
-    harmonizer = onetokreg_vit_base_patch16(
-        norm_pix_loss=True, img_size=(160, 192, 160), num_latent_tokens=128
-    )
-    state_dict = torch.load(args.harmonizer_ckpt, map_location="cpu", weights_only=False)["model"]
-    harmonizer.load_state_dict(state_dict, strict=False)
-    harmonizer = harmonizer.to(device).to(dtype)
-
-    # fMRI encoder (fp32 for SDPA)
-    config = conf_embed_downstream.get_config()
-    config.pos_embed.model_args.gradient = str(args.gradient_path)
-    config.pos_embed.model_args.geo_harm = str(args.geo_harm_path)
-    pos_embed = get_pos_embed(**config.pos_embed)
-    fmri_encoder = get_encoder(pos_embed, None, **config.encoder)
-
-    state_dict = torch.load(args.fmri_ckpt, map_location="cpu", weights_only=False)
-    prefix = "encoder_ema."
-    state_dict = {k[len(prefix):]: v for k, v in state_dict.items() if k.startswith(prefix)}
-    state_dict.pop("pos_embed.emb_h_encoder", None)
-    state_dict.pop("pos_embed.emb_h_decoder", None)
-    fmri_encoder.load_state_dict(state_dict, strict=False)
-    fmri_encoder = fmri_encoder.to(device)
-
-    # T1 encoder (bf16/fp16 for flash attention)
-    t1_encoder = mae_vit_base_patch16(img_size=(160, 192, 160))
-    state_dict = torch.load(args.t1_ckpt, map_location="cpu", weights_only=False)["model"]
-    t1_encoder.load_state_dict(state_dict, strict=False)
-    t1_encoder = t1_encoder.to(device).to(dtype)
-
-    return fmri_encoder, t1_encoder, harmonizer
 
 
 def train_epoch_self_supervised(
@@ -643,8 +598,8 @@ Examples:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("outputs/finetune"),
-        help="Output directory (default: outputs/finetune)",
+        default=Path("outputs/finetune/brainharmonix"),
+        help="Output directory (default: outputs/finetune/brainharmonix)",
     )
     parser.add_argument(
         "--device",

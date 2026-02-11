@@ -8,38 +8,51 @@ import torch
 from tqdm import tqdm
 from pathlib import Path
 
-from hfplayground.models.brainlm_mae.utils import timeseires_to_images, get_attention_cls_token, padding_timeseries_For_vitmae
-from hfplayground.models.brainlm_mae.modeling_vit_mae_with_padding import ViTMAEForPreTraining
+from preventad_benchmark.models.brainlm_mae.utils import timeseires_to_images, get_attention_cls_token, padding_timeseries_For_vitmae
+from preventad_benchmark.models.brainlm_mae.modeling_vit_mae_with_padding import ViTMAEForPreTraining
 try:
-    from hfplayground.models.brainlm_mae.replace_vitmae_attn_with_flash_attn import replace_vitmae_attn_with_flash_attn
+    from preventad_benchmark.models.brainlm_mae.replace_vitmae_attn_with_flash_attn import replace_vitmae_attn_with_flash_attn
     replace_vitmae_attn_with_flash_attn()
 except ImportError:
     print('not using flash attention')
-import click
+import argparse
+
+from preventad_benchmark.config import BRAINLM_MODEL_ARGUMENTS, BRAINLM_TIMESERIES_LENGTH
+
+timeseries_length = BRAINLM_TIMESERIES_LENGTH
+model_arguments = BRAINLM_MODEL_ARGUMENTS
 
 
-timeseries_length = 140
-
-
-model_arguments = {  # BrainLM/train.py::ModelArguments
-    "mask_ratio": 0.75,  # The ratio of the number of masked tokens per brain region.
-    "timepoint_patching_size": 20,  #Length of moving window of timepoints from each brain regions signal for 1 sample.
-    "num_timepoints_per_voxel": timeseries_length,  # Number of timepoints for each brain region given in 1 sample input to model.  Must be divisible by timepoint_patching_size.
-    "hidden_dropout_prob": 0.0,  # Dropout probability for layer activations in CellLM
-    "attention_probs_dropout_prob": 0.0,  # Dropout probability for attention coefficients in CellLM.
-    "output_attentions": True,
-}
-
-@click.command()
-@click.argument('inputs-path')
-@click.argument('model-path')
-@click.argument('outputs-path')
-@click.option(
-    '--image-column-name',
-    default="robustscaler_timeseries",
-    help='Column name for the image data. if you use giga connectome, use robustscaler_timeseries, if you use brainlm, use Subtract_Mean_Divide_Global_STD_Normalized_Recording or Voxelwise_RobustScaler_Normalized_Recording.'
-)
-def main(inputs_path, image_column_name, outputs_path, model_path):
+def main():
+    parser = argparse.ArgumentParser(description="Extract BrainLM embeddings via direct transfer")
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        required=True,
+        help="Path to Arrow dataset",
+    )
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        required=True,
+        help="Path to pretrained BrainLM model",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="outputs/embeddings/brainlm",
+        help="Output path for Arrow dataset with embeddings (default: outputs/embeddings/brainlm)",
+    )
+    parser.add_argument(
+        "--image-column-name",
+        default="robustscaler_timeseries",
+        help="Column name for the image data (default: robustscaler_timeseries)",
+    )
+    args = parser.parse_args()
+    inputs_path = args.dataset
+    model_path = args.model_path
+    outputs_path = args.output_dir
+    image_column_name = args.image_column_name
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     timeseires_to_images_kargs = {

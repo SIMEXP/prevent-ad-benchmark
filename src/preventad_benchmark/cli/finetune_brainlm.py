@@ -6,48 +6,63 @@ https://github.com/Shef-AIRE/FMM_TC/blob/main/FMM_TC-tutorial.ipynb
 https://github.com/wenhui0206/MeTSK/blob/main/meta_learning.py#L8
 BrainLM/continue_train_same_wandb.py
 """
-from hfplayground.models.brainlm_mae.modeling_vit_mae_with_padding import ViTMAEForPreTraining
-from hfplayground.models.brainlm_mae.replace_vitmae_attn_with_flash_attn import replace_vitmae_attn_with_flash_attn
+from preventad_benchmark.models.brainlm_mae.modeling_vit_mae_with_padding import ViTMAEForPreTraining
+from preventad_benchmark.models.brainlm_mae.replace_vitmae_attn_with_flash_attn import replace_vitmae_attn_with_flash_attn
 from transformers import ViTMAEConfig, Trainer, TrainingArguments
 
 from datasets import load_from_disk, DatasetDict
 import torch
-from hfplayground.models.brainlm_mae.utils import timeseires_to_images, collate_fn
-from hfplayground.models.brainlm_mae.metrics import MetricsCalculator
-import click
+from preventad_benchmark.models.brainlm_mae.utils import timeseires_to_images, collate_fn
+from preventad_benchmark.models.brainlm_mae.metrics import MetricsCalculator
+import argparse
 try:
-    from hfplayground.models.brainlm_mae.replace_vitmae_attn_with_flash_attn import replace_vitmae_attn_with_flash_attn
+    from preventad_benchmark.models.brainlm_mae.replace_vitmae_attn_with_flash_attn import replace_vitmae_attn_with_flash_attn
     replace_vitmae_attn_with_flash_attn()
 except ImportError:
     print('not using flash attention')
 
 
-timeseries_length = 140
-
-image_column_name_kw = {
-    "gigaconnectome": "robustscaler_timeseries",
-    "brainlm": "Subtract_Mean_Divide_Global_STD_Normalized_Recording"  # this works
-}
-
-model_arguments = {  # BrainLM/train.py::ModelArguments
-    "mask_ratio": 0.75,  # The ratio of the number of masked tokens per brain region.
-    "timepoint_patching_size": 20,  #Length of moving window of timepoints from each brain regions signal for 1 sample.
-    "num_timepoints_per_voxel": timeseries_length,  # Number of timepoints for each brain region given in 1 sample input to model.  Must be divisible by timepoint_patching_size.
-    "hidden_dropout_prob": 0.0,  # Dropout probability for layer activations in CellLM
-    "attention_probs_dropout_prob": 0.0,  # Dropout probability for attention coefficients in CellLM.
-    "output_attentions": True,
-}
-
-@click.command()
-@click.argument('inputs-path')
-@click.argument('outputs-path')
-@click.option(
-    '--image-column-name',
-    default="robustscaler_timeseries",
-    help='Column name for the image data. if you use giga connectome, use robustscaler_timeseries, if you use brainlm, use Subtract_Mean_Divide_Global_STD_Normalized_Recording or Voxelwise_RobustScaler_Normalized_Recording.'
+from preventad_benchmark.config import (
+    BRAINLM_IMAGE_COLUMNS,
+    BRAINLM_MODEL_ARGUMENTS,
+    BRAINLM_TIMESERIES_LENGTH,
 )
-@click.option('--model-params', default="111M", type=click.Choice(["111M", "650M"]), help='BrainLM model parameters to use.')
-def main(inputs_path, image_column_name, outputs_path, model_params):
+
+timeseries_length = BRAINLM_TIMESERIES_LENGTH
+image_column_name_kw = BRAINLM_IMAGE_COLUMNS
+model_arguments = BRAINLM_MODEL_ARGUMENTS
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Fine-tune BrainLM ViT-MAE on fMRI data")
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        required=True,
+        help="Path to Arrow dataset",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="outputs/finetune/brainlm",
+        help="Output directory for fine-tuned model (default: outputs/finetune/brainlm)",
+    )
+    parser.add_argument(
+        "--image-column-name",
+        default="robustscaler_timeseries",
+        help="Column name for the image data (default: robustscaler_timeseries)",
+    )
+    parser.add_argument(
+        "--model-params",
+        default="111M",
+        choices=["111M", "650M"],
+        help="BrainLM model size (default: 111M)",
+    )
+    args = parser.parse_args()
+    inputs_path = args.dataset
+    outputs_path = args.output_dir
+    image_column_name = args.image_column_name
+    model_params = args.model_params
     timeseires_to_images_kargs = {
         "image_column_name": image_column_name,
         "timeseries_length": timeseries_length, # this is for developmental dataset, full length

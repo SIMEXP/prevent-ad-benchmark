@@ -1,7 +1,7 @@
 [project]
-name = "hfplayground"
+name = "preventad-benchmark"
 version = "0.1.0"
-description = "Add your description here"
+description = "Benchmarking foundation models on PreventAD neuroimaging data"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -24,8 +24,7 @@ dependencies = [
     "transformers[torch]>=4.48.3",
     "brainharmonix",
     "evaluate>=0.4.4",
-    "click>=8.2.1",
-    "timm>=1.0.24",
+"timm>=1.0.24",
     "einops>=0.8.1",
     "flash-attn>=2.7.4.post1",
     "datasets>=3.2.0",
@@ -33,6 +32,18 @@ dependencies = [
 
 [project.optional-dependencies]
 build = ["torch", "setuptools", "packaging"]
+
+[project.scripts]
+preventad-extract-brainlm = "preventad_benchmark.cli.extract_brainlm:main"
+preventad-extract-brainharmonix = "preventad_benchmark.cli.extract_brainharmonix:main"
+preventad-finetune-brainlm = "preventad_benchmark.cli.finetune_brainlm:main"
+preventad-finetune-brainharmonix = "preventad_benchmark.cli.finetune_brainharmonix:main"
+preventad-downstreams = "preventad_benchmark.cli.downstreams:main"
+preventad-baseline = "preventad_benchmark.cli.create_baseline:main"
+preventad-plot = "preventad_benchmark.cli.plot_downstreams:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/preventad_benchmark"]
 
 [tool.uv]
 no-build-isolation-package = ["flash_attn"]
@@ -44,7 +55,6 @@ requires-dist = ["torch", "einops"]
 
 [tool.uv.sources]
 brainharmonix = { git = "https://github.com/MedARC-AI/Brain-Harmony.git", rev = "5398f8f5540222973cf82d13ac1eb4c4b38af636" }
-
 
 [build-system]
 requires = ["hatchling"]
