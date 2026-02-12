@@ -30,7 +30,7 @@ def run_baseline(c, experiment="all"):
     """
     if experiment not in ["all", "brainharmonix", "brainlm"]:
         raise NotImplementedError
-    
+
     inputs = []
     outputs = []
     if experiment in ["all", "brainharmonix"]:
@@ -41,41 +41,10 @@ def run_baseline(c, experiment="all"):
         inputs.append(BRAINLM_BASELINE_FEATURE)
         outputs.append(DEFAULT_OUTPUT_DIR / "baseline.brainlm")
 
-    
+
     for i, o in zip(inputs, outputs):
         print(f"Running {o.name}")
         baseline_experiment(i, o)
-
-
-@invoke.task(
-    help={
-        "input-dirs": "Space-separated list of directories with result TSV files",
-        "output-dir": "Directory to save figures (default: figures/)",
-        "show": "Display plots interactively",
-    }
-)
-def plot_results(c, input_dirs=None, output_dir="figures/", show=False):
-    """Generate plots from downstream experiment results.
-
-    Creates visualizations:
-    - Bar plots with scatter overlays for each metric
-    - Heatmaps comparing features and targets
-    - Summary tables in CSV format
-
-    Example:
-        inv evaluation.plot-results
-        inv evaluation.plot-results --output-dir=./paper-figures/
-        inv evaluation.plot-results --show
-    """
-    cmd = "preventad-plot"
-    if input_dirs:
-        cmd += f" --input-dirs {input_dirs}"
-    cmd += f" --output-dir {output_dir}"
-    if show:
-        cmd += " --show"
-
-    print(f"Running: {cmd}")
-    c.run(cmd)
 
 
 @invoke.task(

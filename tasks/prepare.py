@@ -9,10 +9,10 @@ from pathlib import Path
 import invoke
 from nilearn.datasets import fetch_atlas_schaefer_2018
 
-from preventad_benchmark.data.brainlm import convert_fMRIvols_to_A424, convert_to_brainlm_arrow_datasets
-from preventad_benchmark.data.structural import preprocess_t1_images
-from preventad_benchmark.data.functional import denoise_dataset, extract_timeseries_from_nifti
-from preventad_benchmark.data.utils import convert_to_arrow_dataset, brain_region_coord_to_arrow, resample_atlas
+from preventad_benchmark.dataset.brainlm import convert_fMRIvols_to_A424, convert_to_brainlm_arrow_datasets
+from preventad_benchmark.dataset.structural import preprocess_t1_images
+from preventad_benchmark.dataset.functional import denoise_dataset, extract_timeseries_from_nifti
+from preventad_benchmark.dataset.utils import convert_to_arrow_dataset, brain_region_coord_to_arrow, resample_atlas
 from preventad_benchmark.config import TIMESERIES_LENGTH
 
 
