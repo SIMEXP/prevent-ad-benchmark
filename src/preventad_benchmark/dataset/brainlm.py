@@ -15,7 +15,7 @@ from tqdm import tqdm
 from importlib.resources import files
 
 from preventad_benchmark.config import A424_NPARCELS, BRAINLM_DATASET_CONFIGS, QC_FILTERS, DENOISE_STRATEGY_NAME
-from preventad_benchmark.data.utils import load_phenotype
+from preventad_benchmark.dataset.utils import load_phenotype
 from preventad_benchmark.evaluation.targets import load_prediction_targets
 
 DATASET_MAPPER = BRAINLM_DATASET_CONFIGS

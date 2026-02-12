@@ -13,7 +13,7 @@ from preventad_benchmark.config import (
     DENOISE_STRATEGY,
     DENOISE_STRATEGY_NAME,
 )
-from preventad_benchmark.data.utils import resample_atlas, fetch_and_prepare_schaefer400_atlas, load_phenotype
+from preventad_benchmark.dataset.utils import resample_atlas, fetch_and_prepare_schaefer400_atlas, load_phenotype
 
 
 from preventad_benchmark.config import A424_NPARCELS, BRAINHARMONIX_SEG_NAME, BRAINHARMONIX_SCHAEFER_ROIS, PHENOTYPE_SEXAGE
