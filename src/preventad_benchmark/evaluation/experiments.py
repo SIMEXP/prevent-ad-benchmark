@@ -73,11 +73,11 @@ def run_downstream_experiment(features, labels, output_dir, prefix, pca_componen
     for target_name in EVALUATION_TARGETS:
         y = np.array(labels[target_name])
 
-        # Filter out samples with NaN labels
-        if isinstance(y[0], str):
-            valid_mask = np.array([v != 'nan' for v in y])
-        else:
-            valid_mask = np.array([bool(not np.isnan(v)) for v in y])
+        # Filter out samples with NaN/None labels
+        valid_mask = np.array([
+            v is not None and v != 'nan' and not (isinstance(v, float) and np.isnan(v))
+            for v in y
+        ])
 
         if not valid_mask.any():
             print(f"  Skipping {target_name}: all labels are NaN")

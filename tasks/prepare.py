@@ -13,6 +13,7 @@ from preventad_benchmark.data.brainlm import convert_fMRIvols_to_A424, convert_t
 from preventad_benchmark.data.structural import preprocess_t1_images
 from preventad_benchmark.data.functional import denoise_dataset, extract_timeseries_from_nifti
 from preventad_benchmark.data.utils import convert_to_arrow_dataset, brain_region_coord_to_arrow, resample_atlas
+from preventad_benchmark.config import TIMESERIES_LENGTH
 
 
 # Default paths
@@ -114,31 +115,38 @@ def fmri(c, source_dir=None, output_dir=None, zscore=True):
         "t1-source-dir": "created from prepare.t1",
         "ts-output-dir": "Time series TSV.",
         "output-dir": "Output Arrow dataset path",
-        "workflow": "gigaconnectome or brainlm; if using brainlm, the only atlas applied would be a424", 
+        "workflow": "gigaconnectome or brainlm; if using brainlm, the only atlas applied would be a424",
         "atlas": "schaefer400 or a424"
     }
 )
 def timeseries(c, fmri_source_dir=None, t1_source_dir=None, ts_output_dir=None, output_dir=None, workflow='gigaconnectome', atlas='schaefer400'):
     """Extract time series with a given atlas. Save as arrow dataset.
-    The default option will generate the output for BrainHarmonix 
+    The default option will generate the output for BrainHarmonix
 
     Example:
         inv prepare.timeseries
     """
-    fmri_source_dir = Path(fmri_source_dir) if fmri_source_dir else DEFAULT_INTERIM_DIR / "dataset-preventad.fmri.zscored"
-    t1_source_dir = Path(t1_source_dir) if ts_output_dir else DEFAULT_INTERIM_DIR / "dataset-preventad.t1"
-    ts_output_dir = Path(ts_output_dir) if ts_output_dir else DEFAULT_INTERIM_DIR / f"{fmri_source_dir.name}.{workflow}.{atlas}"
-    output_dir = Path(output_dir) if output_dir else DEFAULT_PROCESSED_DIR / f"{fmri_source_dir.name}.{workflow}.{atlas}.arrow"
-
     if workflow == 'gigaconnectome':
+        fmri_source_dir = Path(fmri_source_dir) if fmri_source_dir else DEFAULT_INTERIM_DIR / "dataset-preventad.fmri.zscored"
+        t1_source_dir = Path(t1_source_dir) if ts_output_dir else DEFAULT_INTERIM_DIR / "dataset-preventad.t1"
+        ts_output_dir = Path(ts_output_dir) if ts_output_dir else DEFAULT_INTERIM_DIR / f"{fmri_source_dir.name}.{workflow}.{atlas}"
+        output_dir = Path(output_dir) if output_dir else DEFAULT_PROCESSED_DIR / f"{fmri_source_dir.name}.{workflow}.{atlas}.arrow"
+
         extract_timeseries_from_nifti(fmri_source_dir, ts_output_dir, atlas)
         convert_to_arrow_dataset(t1_source_dir, ts_output_dir, output_dir, atlas)
     elif workflow == 'brainlm':
+        if atlas != 'a424':
+            print("Warning: BrainLM workflow only supports A424 atlas. Overriding atlas to a424.")
+        atlas = 'a424'  # BrainLM only uses A424 atlas
         # Default should be the non z scored version
-        fmri_source_dir = Path(fmri_source_dir) if fmri_source_dir else DEFAULT_INTERIM_DIR / "dataset-preventad.fmri.NoZscored"
+        fmri_source_dir = Path(fmri_source_dir) if fmri_source_dir else DEFAULT_INTERIM_DIR / "dataset-preventad.fmri.NoZscore"
+        ts_output_dir = DEFAULT_INTERIM_DIR / f"{fmri_source_dir.name}.{workflow}.{atlas}"
+        output_dir = DEFAULT_PROCESSED_DIR / f"{fmri_source_dir.name}.{workflow}.{atlas}.arrow"
+
+        output_dir = Path(output_dir) if output_dir else DEFAULT_PROCESSED_DIR / f"{fmri_source_dir.name}.{workflow}.{atlas}.arrow"
         c.run(f"mkdir -p {ts_output_dir}")
         convert_fMRIvols_to_A424(str(fmri_source_dir), ts_output_dir, dataset_name='preventad')
         c.run(f"mkdir -p {output_dir}")
-        convert_to_brainlm_arrow_datasets(str(ts_output_dir), str(output_dir), dataset_name='preventad', ts_min_length=150, compute_Stats=True)
+        convert_to_brainlm_arrow_datasets(str(ts_output_dir), str(output_dir), dataset_name='preventad', ts_min_length=TIMESERIES_LENGTH, compute_Stats=True)
     else:
         raise ValueError(f"unsupported workflow {workflow}.")

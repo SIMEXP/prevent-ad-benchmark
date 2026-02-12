@@ -61,7 +61,7 @@ def load_prediction_targets(features_path, phenotype_path=None):
     centiloid_bin = []
     for val in pheno_df["centiloid_s0_WhlCbl"].astype(float).tolist():
         if np.isnan(val):
-            centiloid_bin.append(val)
+            centiloid_bin.append(None)
         elif val > 20:
             centiloid_bin.append('positive')
         else:
@@ -72,7 +72,7 @@ def load_prediction_targets(features_path, phenotype_path=None):
     ab_bin = []
     for val in pheno_df["amyloid_index_SUVR"].astype(float).tolist():
         if np.isnan(val):
-            ab_bin.append(val)
+            ab_bin.append(None)
         elif val > 1.26:
             ab_bin.append('positive')
         else:
