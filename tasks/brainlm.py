@@ -39,15 +39,15 @@ def finetune_brainlm(
         inv models.finetune-brainlm --model-params=650M
         inv models.finetune-brainlm --input-path=./data/processed/custom.arrow
     """
-    input_path = input_path or str(DEFAULT_DATA_DIR / "dataset-preventad.brainlm.arrow")
-    output_path = output_path or str(DEFAULT_OUTPUT_DIR / f"finetune/brainlm-{model_params}-og")
+    input_path = input_path or str(DEFAULT_DATA_DIR / "dataset-preventad.fmri.NoZscore.brainlm.a424.arrow")
+    output_path = output_path or str(DEFAULT_OUTPUT_DIR / f"finetune/brainlm/nozscore.{model_params}.brainlm.selfsupervised")
 
     cmd = f"preventad-finetune-brainlm --dataset {input_path} --output-dir {output_path} --image-column-name {image_column} --model-params {model_params}"
     print(f"Running: {cmd}")
     c.run(cmd)
 
     # Extract features from finetuned model
-    extract_path = str(DEFAULT_OUTPUT_DIR / f"embeddings/brainlm.vitmae_{model_params}.finetuned.og")
+    extract_path = str(DEFAULT_OUTPUT_DIR / f"embeddings/brainlm/nozscore.{model_params}.brainlm.selfsupervised.embeddings")
     extract_cmd = f"preventad-extract-brainlm --dataset {input_path} --model-path {output_path} --output-dir {extract_path} --image-column-name {image_column}"
     print(f"Running: {extract_cmd}")
     c.run(extract_cmd)

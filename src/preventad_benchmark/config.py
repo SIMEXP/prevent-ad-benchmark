@@ -80,7 +80,7 @@ BRAINLM_DATASET_CONFIGS = {
     "preventad": {
         "atlas_file": Path("resource/preventad/resample_A424+2mm.nii.gz"),
         "seg_name": "a424",
-        "ts_min_length": 150,
+        "ts_min_length": TIMESERIES_LENGTH,
         "phenotype": {
             "filepath": str(PHENOTYPE_SEXAGE),
             "index_col": "identifier",

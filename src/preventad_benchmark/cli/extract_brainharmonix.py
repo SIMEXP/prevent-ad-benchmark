@@ -19,6 +19,7 @@ References:
 import argparse
 from pathlib import Path
 
+import numpy as np
 import torch
 from tqdm import tqdm
 
@@ -194,8 +195,13 @@ Examples:
     # Load models
     print("\nLoading models...")
     harmonizer = load_harmonizer(args.harmonizer_ckpt, device, mode="inference")
-    fmri_encoder = load_fmri_encoder(args.fmri_ckpt, args.gradient_path, args.geo_harm_path, device)
-    t1_encoder = load_t1_encoder(args.t1_ckpt, device, mode="inference")
+    if args.fmri_ckpt is None and args.t1_ckpt is None:
+        print("Try loading encoders from harmonizer checkpoint...")
+        fmri_encoder = harmonizer.fmri_encoder
+        t1_encoder = harmonizer.t1_encoder
+    else:
+        fmri_encoder = load_fmri_encoder(args.fmri_ckpt, args.gradient_path, args.geo_harm_path, device)
+        t1_encoder = load_t1_encoder(args.t1_ckpt, device, mode="inference")
     print("Models loaded successfully")
 
     # Load dataset
@@ -208,7 +214,7 @@ Examples:
         num_workers=args.num_workers,
         pin_memory=True,
     )
-
+    participant_ids = [d["participant_id"] for d in dataset]
     # Extract embeddings
     print("\nExtracting embeddings...")
     fmri_embeds, t1_embeds, harmonizer_embeds = extract_embeddings(
@@ -219,19 +225,19 @@ Examples:
     print(f"T1 embeddings shape: {t1_embeds.shape}")
     print(f"Harmonizer embeddings shape: {harmonizer_embeds.shape}")
 
-    # Save embeddings
-    fmri_path = args.output_dir / f"{args.output_prefix}.fmri_embeddings.pt"
-    t1_path = args.output_dir / f"{args.output_prefix}.t1_embeddings.pt"
-    harmonizer_path = args.output_dir / f"{args.output_prefix}.harmonizer_embeddings.pt"
+    # Save embeddings as npz files
+    embedding_path = args.output_dir / f"{args.output_prefix}.embeddings.npz"
 
-    torch.save(fmri_embeds, fmri_path)
-    torch.save(t1_embeds, t1_path)
-    torch.save(harmonizer_embeds, harmonizer_path)
+    np.savez(
+        embedding_path,
+        fmri=fmri_embeds.numpy(),
+        t1=t1_embeds.numpy(),
+        harmonizer=harmonizer_embeds.numpy(),
+        participant_ids=participant_ids
+    )
 
-    print(f"\nSaved embeddings to:")
-    print(f"  - {fmri_path}")
-    print(f"  - {t1_path}")
-    print(f"  - {harmonizer_path}")
+    print("\nSaved embeddings to:")
+    print(f"  - {embedding_path}")
 
 
 if __name__ == "__main__":

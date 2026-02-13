@@ -4,7 +4,7 @@ This module contains invoke tasks for running downstream prediction
 experiments and generating result visualizations.
 """
 from pathlib import Path
-from preventad_benchmark.evaluation import baseline_experiment
+from preventad_benchmark.evaluation import baseline_experiment, brainharmonix_experiment
 import invoke
 
 
@@ -49,79 +49,32 @@ def run_baseline(c, experiment="all"):
 
 @invoke.task(
     help={
-        "dataset": "Path to BrainHarmonix Arrow dataset",
-        "harmonizer-ckpt": "Path to fine-tuned harmonizer checkpoint",
-        "output-dir": "Output directory for embeddings",
-        "output-prefix": "Prefix for output files",
+        "experiment": "Which experiment to run: all, finetune, representation (default: all)",
+        "output-dir": "Output directory for experiment results (default: outputs/downstreams/brainharmonix)",
     }
 )
-def extract_brainharmonix(
-    c,
-    dataset=None,
-    harmonizer_ckpt=None,
-    output_dir="outputs/embeddings/brainharmonix",
-    output_prefix="brainharmonix",
-):
-    """Extract embeddings from BrainHarmonix model.
+def run_brainharmonix_experiment(c, experiment="all", output_dir=DEFAULT_OUTPUT_DIR / "brainharmonix"):
+    """Run downstream experiments with BrainHarmonix features."""
 
-    Extracts embeddings from:
-    - fMRI encoder (Harmonix-F): 7200 tokens × 768 dim
-    - T1 encoder (Harmonix-S): 1200 tokens × 768 dim
-    - Harmonizer: 129 tokens × 768 dim (1 CLS + 128 latent)
+    if experiment not in ["all", "finetune", "representation"]:
+        raise NotImplementedError
 
-    Example:
-        inv evaluation.extract-brainharmonix --dataset=./data/processed/dataset.arrow
-        inv evaluation.extract-brainharmonix --harmonizer-ckpt=./outputs/finetuned/checkpoint.pt
-    """
-    dataset = dataset or "data/processed/dataset-preventad.brainharmonix.NoGrandmeanScaling.arrow"
-
-    cmd = f"preventad-extract-brainharmonix --dataset {dataset} --output-dir {output_dir} --output-prefix {output_prefix}"
-    if harmonizer_ckpt:
-        cmd += f" --harmonizer-ckpt {harmonizer_ckpt}"
-
-    print(f"Running: {cmd}")
-    c.run(cmd)
+    emb_paths = []
+    outputs = []
+    if experiment in ["all", "finetune"]:
+        emb_paths.append("outputs/embeddings/brainharmonix/nozscore.brainharmonix.finetuned.embeddings.npz")
+        outputs.append(output_dir / "nozscore.finetuned.brainharmonix")
+        emb_paths.append("outputs/embeddings/brainharmonix/zscore.brainharmonix.finetuned.embeddings.npz")
+        outputs.append(output_dir / "zscore.finetuned.brainharmonix")
 
 
-@invoke.task(
-    help={
-        "dataset": "Path to BrainHarmonix Arrow dataset",
-        "task": "Task type: self-supervised, classification, or regression",
-        "target": "Target column for supervised tasks (e.g., Sex, Candidate_Age)",
-        "epochs": "Number of training epochs (default: 50)",
-        "lr": "Learning rate (default: 1e-5)",
-        "batch-size": "Batch size (default: 4)",
-        "output-dir": "Output directory for checkpoints",
-    }
-)
-def finetune_brainharmonix(
-    c,
-    dataset=None,
-    task="self-supervised",
-    target=None,
-    epochs=50,
-    lr="1e-5",
-    batch_size=4,
-    output_dir=None,
-):
-    """Fine-tune BrainHarmonix harmonizer.
+    if experiment in ["all", "representation"]:
+        emb_paths.append("outputs/embeddings/brainharmonix/nozscore.brainharmonix.embeddings.npz")
+        outputs.append(output_dir / "nozscore.brainharmonix")
+        emb_paths.append("outputs/embeddings/brainharmonix/zscore.brainharmonix.embeddings.npz")
+        outputs.append(output_dir / "zscore.brainharmonix")
 
-    Supports three training modes:
-    - self-supervised: Adapt to dataset distribution (no labels needed)
-    - classification: Supervised classification (e.g., sex, disease)
-    - regression: Supervised regression (e.g., age prediction)
+    print(f"Running {len(emb_paths)} experiments.")
 
-    Example:
-        inv evaluation.finetune-brainharmonix --task=self-supervised
-        inv evaluation.finetune-brainharmonix --task=classification --target=Sex
-        inv evaluation.finetune-brainharmonix --task=regression --target=Candidate_Age
-    """
-    dataset = dataset or "data/processed/dataset-preventad.brainharmonix.NoGrandmeanScaling.arrow"
-    output_dir = output_dir or f"outputs/finetune/brainharmonix-{task}"
-
-    cmd = f"preventad-finetune-brainharmonix --dataset {dataset} --task {task} --epochs {epochs} --lr {lr} --batch-size {batch_size} --output-dir {output_dir}"
-    if target and task != "self-supervised":
-        cmd += f" --target {target}"
-
-    print(f"Running: {cmd}")
-    c.run(cmd)
+    for emb_path, output_dir in zip(emb_paths, outputs):
+        brainharmonix_experiment(emb_path=emb_path, output_dir=output_dir)

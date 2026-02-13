@@ -21,10 +21,10 @@ Usage:
     python finetune_brainharmonix.py --dataset data.arrow --task self-supervised
 
     # Classification (e.g., sex classification)
-    python finetune_brainharmonix.py --dataset data.arrow --target Sex --task classification
+    python finetune_brainharmonix.py --dataset data.arrow --target sex --task classification
 
     # Regression (e.g., age prediction)
-    python finetune_brainharmonix.py --dataset data.arrow --target Candidate_Age --task regression
+    python finetune_brainharmonix.py --dataset data.arrow --target age --task regression
 
 References:
     - BrainHarmony: https://github.com/hzlab/Brain-Harmony
@@ -33,20 +33,28 @@ References:
 import argparse
 import json
 from pathlib import Path
-from typing import Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset, random_split
-from tqdm import tqdm
+from torch.utils.data import DataLoader, random_split
 
 from preventad_benchmark.config import (
     BRAINHARMONIX_CHECKPOINTS,
     BRAINHARMONIX_POS_EMBED_PATHS,
 )
 from preventad_benchmark.models.brainharmonix.loaders import load_all_models
-from preventad_benchmark.models.brainharmonix.utils import BrainHarmonixDataset
+from preventad_benchmark.models.brainharmonix.datasets import BrainHarmonixDataset, FineTuneDataset
+from preventad_benchmark.models.brainharmonix.models import (
+    BrainHarmonixSelfSupervisedModel,
+    BrainHarmonixSupervisedModel,
+)
+from preventad_benchmark.models.brainharmonix.fintuning_engines import (
+    train_epoch_self_supervised,
+    evaluate_self_supervised,
+    train_epoch_supervised,
+    evaluate_supervised,
+)
+from preventad_benchmark.models.brainharmonix.utils import save_checkpoint
 
 # Default paths for CLI argument defaults
 DEFAULT_GRADIENT_PATH = str(BRAINHARMONIX_POS_EMBED_PATHS["gradient"])
@@ -54,222 +62,6 @@ DEFAULT_GEO_HARM_PATH = str(BRAINHARMONIX_POS_EMBED_PATHS["geo_harm"])
 DEFAULT_HARMONIZER_CKPT = str(BRAINHARMONIX_CHECKPOINTS["harmonizer"])
 DEFAULT_FMRI_ENCODER_CKPT = str(BRAINHARMONIX_CHECKPOINTS["fmri_encoder"])
 DEFAULT_T1_ENCODER_CKPT = str(BRAINHARMONIX_CHECKPOINTS["t1_encoder"])
-
-
-class MLPHead(nn.Module):
-    """MLP classification/regression head."""
-
-    def __init__(
-        self,
-        in_features: int,
-        hidden_dim: int,
-        out_features: int,
-        dropout: float = 0.1,
-    ):
-        super().__init__()
-        self.fc1 = nn.Linear(in_features, hidden_dim)
-        self.dropout1 = nn.Dropout(dropout)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim // 2)
-        self.dropout2 = nn.Dropout(dropout)
-        self.fc3 = nn.Linear(hidden_dim // 2, out_features)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = F.relu(self.fc1(x))
-        x = self.dropout1(x)
-        x = F.relu(self.fc2(x))
-        x = self.dropout2(x)
-        return self.fc3(x)
-
-
-class BrainHarmonixSelfSupervisedModel(nn.Module):
-    """BrainHarmonix model for self-supervised fine-tuning.
-
-    Uses the harmonizer's built-in reconstruction objective:
-    - Encoder compresses fMRI+T1 embeddings into latent tokens
-    - Decoder reconstructs the original embeddings from latent tokens
-    - Loss = MSE between original and reconstructed embeddings
-    """
-
-    def __init__(
-        self,
-        fmri_encoder: nn.Module,
-        t1_encoder: nn.Module,
-        harmonizer: nn.Module,
-        freeze_stage0_encoders: bool = True,
-    ):
-        super().__init__()
-        self.fmri_encoder = fmri_encoder
-        self.t1_encoder = t1_encoder
-        self.harmonizer = harmonizer
-
-        # Always freeze stage0 encoders (fMRI and T1)
-        if freeze_stage0_encoders:
-            for param in self.fmri_encoder.parameters():
-                param.requires_grad = False
-            for param in self.t1_encoder.parameters():
-                param.requires_grad = False
-
-        # Harmonizer is trainable for self-supervised learning
-
-    def forward(
-        self,
-        fmri: torch.Tensor,
-        t1: torch.Tensor,
-        attn_mask: torch.Tensor,
-        patch_size: int,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Forward pass returning reconstruction loss.
-
-        Returns:
-            loss: Reconstruction loss (MSE)
-            pred: Reconstructed embeddings
-        """
-        # Encode fMRI (fp32 for SDPA)
-        with torch.no_grad():
-            fmri_embed = self.fmri_encoder(fmri, patch_size, attention_mask=attn_mask)
-            t1_embed = self.t1_encoder(t1)
-
-        # Combine embeddings (match harmonizer dtype - bf16 or fp16)
-        harmonizer_dtype = next(self.harmonizer.parameters()).dtype
-        combined = torch.cat([fmri_embed.to(harmonizer_dtype), t1_embed], dim=1)
-
-        # Harmonizer forward returns (loss, pred, None)
-        # Uses its built-in reconstruction objective
-        loss, pred, _ = self.harmonizer(combined, attn_mask)
-
-        return loss, pred
-
-
-class BrainHarmonixSupervisedModel(nn.Module):
-    """BrainHarmonix model with supervised fine-tuning head.
-
-    Architecture:
-        fMRI encoder (frozen) → fMRI embeddings
-        T1 encoder (frozen) → T1 embeddings
-        Concatenate → Harmonizer encoder → Latent tokens
-        Pool latent tokens → MLP head → Output
-    """
-
-    def __init__(
-        self,
-        fmri_encoder: nn.Module,
-        t1_encoder: nn.Module,
-        harmonizer: nn.Module,
-        num_classes: int,
-        task: str = "classification",
-        pooling: str = "mean",
-        freeze_encoders: bool = True,
-        hidden_dim: int = 512,
-        dropout: float = 0.1,
-    ):
-        super().__init__()
-        self.fmri_encoder = fmri_encoder
-        self.t1_encoder = t1_encoder
-        self.harmonizer = harmonizer
-        self.task = task
-        self.pooling = pooling
-
-        # Freeze encoders if requested
-        if freeze_encoders:
-            for param in self.fmri_encoder.parameters():
-                param.requires_grad = False
-            for param in self.t1_encoder.parameters():
-                param.requires_grad = False
-            for param in self.harmonizer.parameters():
-                param.requires_grad = False
-
-        # Harmonizer outputs 129 tokens × 768 dim (1 CLS + 128 latent)
-        embed_dim = 768
-        if pooling == "cls":
-            in_features = embed_dim
-        elif pooling == "mean":
-            in_features = embed_dim
-        elif pooling == "concat":
-            in_features = embed_dim * 129
-        else:
-            raise ValueError(f"Unknown pooling: {pooling}")
-
-        out_features = num_classes if task == "classification" else 1
-        self.head = MLPHead(in_features, hidden_dim, out_features, dropout)
-
-    def forward(
-        self,
-        fmri: torch.Tensor,
-        t1: torch.Tensor,
-        attn_mask: torch.Tensor,
-        patch_size: int,
-    ) -> torch.Tensor:
-        # Encode fMRI (fp32 for SDPA)
-        fmri_embed = self.fmri_encoder(fmri, patch_size, attention_mask=attn_mask)
-
-        # Encode T1 (bf16/fp16 for flash attention)
-        t1_embed = self.t1_encoder(t1)
-
-        # Combine and pass through harmonizer (match harmonizer dtype)
-        harmonizer_dtype = next(self.harmonizer.parameters()).dtype
-        combined = torch.cat([fmri_embed.to(harmonizer_dtype), t1_embed], dim=1)
-        latent, _ = self.harmonizer.forward_encoder(combined, attn_mask)
-        latent = latent.float()
-
-        # Pool latent tokens
-        if self.pooling == "cls":
-            pooled = latent[:, 0]
-        elif self.pooling == "mean":
-            pooled = latent[:, 1:].mean(dim=1)
-        elif self.pooling == "concat":
-            pooled = latent.view(latent.size(0), -1)
-
-        return self.head(pooled)
-
-
-class FineTuneDataset(Dataset):
-    """Wrapper dataset that optionally adds labels for fine-tuning."""
-
-    def __init__(
-        self,
-        base_dataset: BrainHarmonixDataset,
-        target_column: Optional[str] = None,
-        task: str = "self-supervised",
-        label_map: Optional[dict] = None,
-    ):
-        self.base_dataset = base_dataset
-        self.target_column = target_column
-        self.task = task
-        self.label_map = label_map
-
-        # Build label map for classification
-        if task == "classification" and label_map is None and target_column is not None:
-            unique_labels = set()
-            for i in range(len(base_dataset)):
-                sample = base_dataset.dataset[i]
-                unique_labels.add(sample[target_column])
-            self.label_map = {label: idx for idx, label in enumerate(sorted(unique_labels))}
-            print(f"Label map: {self.label_map}")
-
-    def __len__(self) -> int:
-        return len(self.base_dataset)
-
-    def __getitem__(self, idx: int) -> dict:
-        item = self.base_dataset[idx]
-
-        # Add label for supervised tasks
-        if self.task != "self-supervised" and self.target_column is not None:
-            raw_sample = self.base_dataset.dataset[idx]
-            target_value = raw_sample[self.target_column]
-
-            if self.task == "classification":
-                item["label"] = self.label_map[target_value]
-            else:
-                item["label"] = float(target_value)
-
-        return item
-
-    @property
-    def num_classes(self) -> int:
-        if self.task == "classification" and self.label_map is not None:
-            return len(self.label_map)
-        return 1
-
 
 def load_models(args, device: torch.device) -> tuple:
     """Load all three model components using shared loaders."""
@@ -284,208 +76,8 @@ def load_models(args, device: torch.device) -> tuple:
     )
 
 
-def train_epoch_self_supervised(
-    model: nn.Module,
-    dataloader: DataLoader,
-    optimizer: torch.optim.Optimizer,
-    device: torch.device,
-    epoch: int,
-) -> dict:
-    """Train one epoch for self-supervised learning."""
-    model.train()
-    # Keep stage0 encoders in eval mode
-    model.fmri_encoder.eval()
-    model.t1_encoder.eval()
-
-    total_loss = 0.0
-    num_samples = 0
-
-    pbar = tqdm(dataloader, desc=f"Epoch {epoch} [Train]")
-    for batch in pbar:
-        fmri = batch["fmri"].to(device)
-        t1 = batch["t1"].to(device).bfloat16()
-        attn_mask = batch["attn_mask"].to(device).bool()
-        patch_size = batch["patch_size"][0].item()
-
-        optimizer.zero_grad()
-
-        # No GradScaler needed - harmonizer is already FP16
-        with torch.amp.autocast("cuda", dtype=torch.bfloat16):
-            loss, _ = model(fmri, t1, attn_mask, patch_size)
-
-        loss.backward()
-        optimizer.step()
-
-        batch_size = fmri.size(0)
-        total_loss += loss.item() * batch_size
-        num_samples += batch_size
-
-        pbar.set_postfix({"loss": loss.item()})
-
-    return {"loss": total_loss / num_samples}
-
-
-@torch.no_grad()
-def evaluate_self_supervised(
-    model: nn.Module,
-    dataloader: DataLoader,
-    device: torch.device,
-) -> dict:
-    """Evaluate self-supervised model."""
-    model.eval()
-
-    total_loss = 0.0
-    num_samples = 0
-
-    for batch in tqdm(dataloader, desc="Evaluating"):
-        fmri = batch["fmri"].to(device)
-        t1 = batch["t1"].to(device).bfloat16()
-        attn_mask = batch["attn_mask"].to(device).bool()
-        patch_size = batch["patch_size"][0].item()
-
-        with torch.amp.autocast("cuda", dtype=torch.bfloat16):
-            loss, _ = model(fmri, t1, attn_mask, patch_size)
-
-        batch_size = fmri.size(0)
-        total_loss += loss.item() * batch_size
-        num_samples += batch_size
-
-    return {"loss": total_loss / num_samples}
-
-
-def train_epoch_supervised(
-    model: nn.Module,
-    dataloader: DataLoader,
-    criterion: nn.Module,
-    optimizer: torch.optim.Optimizer,
-    device: torch.device,
-    epoch: int,
-    scaler: torch.amp.GradScaler,
-    task: str,
-) -> dict:
-    """Train one epoch for supervised learning."""
-    model.train()
-    model.fmri_encoder.eval()
-    model.t1_encoder.eval()
-    model.harmonizer.eval()
-
-    total_loss = 0.0
-    num_samples = 0
-
-    pbar = tqdm(dataloader, desc=f"Epoch {epoch} [Train]")
-    for batch in pbar:
-        fmri = batch["fmri"].to(device)
-        t1 = batch["t1"].to(device).bfloat16()
-        attn_mask = batch["attn_mask"].to(device).bool()
-        patch_size = batch["patch_size"][0].item()
-        labels = batch["label"].to(device)
-
-        optimizer.zero_grad()
-
-        with torch.amp.autocast("cuda", dtype=torch.bfloat16):
-            outputs = model(fmri, t1, attn_mask, patch_size)
-            if task == "classification":
-                loss = criterion(outputs, labels.long())
-            else:
-                loss = criterion(outputs.squeeze(), labels.float())
-
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-
-        batch_size = fmri.size(0)
-        total_loss += loss.item() * batch_size
-        num_samples += batch_size
-
-        pbar.set_postfix({"loss": loss.item()})
-
-    return {"loss": total_loss / num_samples}
-
-
-@torch.no_grad()
-def evaluate_supervised(
-    model: nn.Module,
-    dataloader: DataLoader,
-    criterion: nn.Module,
-    device: torch.device,
-    task: str,
-) -> dict:
-    """Evaluate supervised model."""
-    model.eval()
-
-    total_loss = 0.0
-    all_preds = []
-    all_labels = []
-
-    for batch in tqdm(dataloader, desc="Evaluating"):
-        fmri = batch["fmri"].to(device)
-        t1 = batch["t1"].to(device).bfloat16()
-        attn_mask = batch["attn_mask"].to(device).bool()
-        patch_size = batch["patch_size"][0].item()
-        labels = batch["label"].to(device)
-
-        with torch.amp.autocast("cuda", dtype=torch.bfloat16):
-            outputs = model(fmri, t1, attn_mask, patch_size)
-            if task == "classification":
-                loss = criterion(outputs, labels.long())
-                preds = outputs.argmax(dim=1)
-            else:
-                loss = criterion(outputs.squeeze(), labels.float())
-                preds = outputs.squeeze()
-
-        batch_size = fmri.size(0)
-        total_loss += loss.item() * batch_size
-        all_preds.append(preds.cpu())
-        all_labels.append(labels.cpu())
-
-    all_preds = torch.cat(all_preds)
-    all_labels = torch.cat(all_labels)
-
-    metrics = {"loss": total_loss / len(dataloader.dataset)}
-
-    if task == "classification":
-        accuracy = (all_preds == all_labels).float().mean().item()
-        metrics["accuracy"] = accuracy
-    else:
-        mse = F.mse_loss(all_preds.float(), all_labels.float()).item()
-        mae = F.l1_loss(all_preds.float(), all_labels.float()).item()
-        metrics["mse"] = mse
-        metrics["mae"] = mae
-
-    return metrics
-
-
-def save_checkpoint(
-    model: nn.Module,
-    optimizer: torch.optim.Optimizer,
-    epoch: int,
-    metrics: dict,
-    path: Path,
-    task: str,
-    label_map: Optional[dict] = None,
-):
-    """Save model checkpoint."""
-    checkpoint = {
-        "epoch": epoch,
-        "task": task,
-        "metrics": metrics,
-        "optimizer_state_dict": optimizer.state_dict(),
-    }
-
-    if task == "self-supervised":
-        # Save only the harmonizer state dict (compatible with extract script)
-        checkpoint["model"] = model.harmonizer.state_dict()
-    else:
-        # Save full model state dict
-        checkpoint["model_state_dict"] = model.state_dict()
-        if label_map is not None:
-            checkpoint["label_map"] = label_map
-
-    torch.save(checkpoint, path)
-    print(f"Saved checkpoint to {path}")
-
-
 def main():
+    """Main function to parse arguments and run fine-tuning."""
     parser = argparse.ArgumentParser(
         description="Fine-tune BrainHarmonix for downstream tasks",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -664,10 +256,10 @@ Examples:
             fmri_encoder=fmri_encoder,
             t1_encoder=t1_encoder,
             harmonizer=harmonizer,
-            freeze_stage0_encoders=True,
+            freeze_stage0_encoders=not args.unfreeze_harmonizer,
         )
         # Use lower learning rate for self-supervised
-        if args.lr == 1e-4:  # Default was not changed
+        if args.lr == 1e-4 and not args.unfreeze_harmonizer:  # Default was not changed
             args.lr = 1e-5
             print(f"Using lower learning rate for self-supervised: {args.lr}")
     else:
@@ -708,7 +300,7 @@ Examples:
     # Training loop
     print(f"\nStarting training for {args.epochs} epochs...")
     best_loss = float("inf")
-
+    metrics = []
     for epoch in range(1, args.epochs + 1):
         if args.task == "self-supervised":
             train_metrics = train_epoch_self_supervised(
@@ -723,6 +315,12 @@ Examples:
             if is_best:
                 best_loss = val_metrics["loss"]
 
+            metrics.append({
+                "epoch": epoch,
+                "train_loss": train_metrics["loss"],
+                "val_loss": val_metrics["loss"],
+            })
+
         else:
             train_metrics = train_epoch_supervised(
                 model, train_loader, criterion, optimizer, device, epoch, scaler, args.task
@@ -736,13 +334,24 @@ Examples:
                 is_best = val_metrics["accuracy"] > best_loss  # best_loss used as best_metric here
                 if is_best:
                     best_loss = val_metrics["accuracy"]
+                metrics.append({
+                    "epoch": epoch,
+                    "train_loss": train_metrics["loss"],
+                    "val_loss": val_metrics["loss"],
+                    "val_accuracy": val_metrics["accuracy"],
+                })
             else:
                 print(f", Val Loss={val_metrics['loss']:.4f}, Val MAE={val_metrics['mae']:.4f}")
                 metric_key = "mae"
                 is_best = val_metrics["mae"] < best_loss
                 if is_best:
                     best_loss = val_metrics["mae"]
-
+                metrics.append({
+                    "epoch": epoch,
+                    "train_loss": train_metrics["loss"],
+                    "val_loss": val_metrics["loss"],
+                    "val_mae": val_metrics["mae"],
+                })
         # Save best model
         if is_best:
             save_checkpoint(
@@ -750,10 +359,14 @@ Examples:
                 optimizer,
                 epoch,
                 val_metrics,
-                args.output_dir / "checkpoint_best.pt",
+                args.output_dir / "harmonizer_checkpoint_best.pt",
                 args.task,
                 label_map=dataset.label_map if args.task == "classification" else None,
             )
+            # save the fmri encoder and t1 encoder checkpoints as well for reproducibility
+            if args.unfreeze_harmonizer:
+                torch.save(model.fmri_encoder.state_dict(), args.output_dir / "fmri_encoder_checkpoint_best.pt")
+                torch.save(model.t1_encoder.state_dict(), args.output_dir / "t1_encoder_checkpoint_best.pt")
 
     # Save final model
     save_checkpoint(
@@ -761,10 +374,13 @@ Examples:
         optimizer,
         args.epochs,
         val_metrics,
-        args.output_dir / "checkpoint_final.pt",
+        args.output_dir / "harmonizer_checkpoint_final.pt",
         args.task,
         label_map=dataset.label_map if args.task == "classification" else None,
     )
+    if args.unfreeze_harmonizer:
+        torch.save(model.fmri_encoder.state_dict(), args.output_dir / "fmri_encoder_checkpoint_final.pt")
+        torch.save(model.t1_encoder.state_dict(), args.output_dir / "t1_encoder_checkpoint_final.pt")
 
     # Save config
     config = {
@@ -775,6 +391,7 @@ Examples:
         "epochs": args.epochs,
         "lr": args.lr,
         "batch_size": args.batch_size,
+        "metrics": metrics,
     }
     if args.task == "classification":
         config["num_classes"] = dataset.num_classes
@@ -790,7 +407,7 @@ Examples:
     print(f"Checkpoints saved to {args.output_dir}")
 
     if args.task == "self-supervised":
-        print(f"\nTo use the fine-tuned harmonizer with extract_brainharmonix.py:")
+        print("\nTo use the fine-tuned harmonizer with extract_brainharmonix.py:")
         print(f"  python extract_brainharmonix.py --dataset {args.dataset} \\")
         print(f"      --harmonizer-ckpt {args.output_dir}/checkpoint_best.pt")
 
