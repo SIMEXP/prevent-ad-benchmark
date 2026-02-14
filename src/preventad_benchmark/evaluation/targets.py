@@ -9,7 +9,7 @@ from datasets import load_from_disk
 from preventad_benchmark.config import PHENOTYPE_TARGETS
 
 
-def load_prediction_targets(features_path, phenotype_path=None):
+def load_prediction_targets(features_path=None, participant_ids=None, phenotype_path=None):
     """Load phenotype targets and match order with a features Arrow dataset.
 
     Works for both BrainLM and BrainHarmonix datasets — any Arrow dataset
@@ -21,23 +21,36 @@ def load_prediction_targets(features_path, phenotype_path=None):
 
     Args:
         features_path: Path to Arrow dataset with participant_id.
+        participant_ids: participant ids in list format. If provided, will filter the targets to only these participants.
         phenotype_path: Path to subject-level targets TSV. Defaults to PHENOTYPE_TARGETS.
 
     Returns:
         dict with keys 'sex', 'age', 'splifhalfage', 'progess2mci', 'aps'.
     """
-    phenotype_path = phenotype_path or str(PHENOTYPE_TARGETS)
-    features = load_from_disk(str(features_path))
+    if features_path is None and participant_ids is None:
+        raise ValueError("Must provide either features_path or participant_ids to load targets.")
+    else:
+        participant_ids_index = None
+        if features_path:
+            features = load_from_disk(str(features_path))
+            participant_ids_index = [
+                re.search(r"sub-(MTL\d{4})_", stem)[1]
+                for stem in features["participant_id"]
+            ]
+
+        if participant_ids:
+            participant_ids_index = [
+                re.search(r"sub-(MTL\d{4})_", stem)[1]
+                for stem in participant_ids
+            ]
+
 
     # Load phenotype and match participant order
+    phenotype_path = phenotype_path or str(PHENOTYPE_TARGETS)
     pheno_df = pd.read_csv(
         phenotype_path, sep="\t", header=0, index_col=0, na_values="n/a"
     )
-    participant_ids = [
-        re.search(r"sub-(MTL\d{4})_", stem)[1]
-        for stem in features["participant_id"]
-    ]
-    pheno_df = pheno_df.loc[participant_ids]
+    pheno_df = pheno_df.loc[participant_ids_index]
 
     # there are multiple sessions per subject, keep the first session
     pheno_df = pheno_df.groupby(level=0).first()
@@ -66,7 +79,7 @@ def load_prediction_targets(features_path, phenotype_path=None):
             centiloid_bin.append('positive')
         else:
             centiloid_bin.append('negative')
-    
+
 
     # β-amyloid (Aβ) positive SUVR ->1.26 to determine Ab-positivity
     ab_bin = []

@@ -10,7 +10,7 @@ Run `invoke --list` to see all available tasks.
 """
 import invoke
 
-from . import models, evaluation, prepare
+from . import brainharmonix, brainlm, evaluation, prepare, reports
 
 
 @invoke.task
@@ -24,6 +24,9 @@ def clean(c):
 ns = invoke.Collection()
 
 ns.add_collection(prepare)
-ns.add_collection(models)
+ns.add_collection(brainlm)
+ns.add_collection(brainharmonix)
 ns.add_collection(evaluation)
+ns.add_collection(reports)
+
 ns.add_task(clean)

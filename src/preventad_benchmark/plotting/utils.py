@@ -112,13 +112,19 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFram
         if group['task_type'].iloc[0] == 'classification':
             for metric in ['accuracy', 'auc', 'f1']:
                 mean = group[metric].mean()
-                std = group[metric].std()
-                record[metric.upper()] = f'{mean:.3f} ± {std:.3f}'
+                # report confience interval instead of SD as these
+                # splits are autocorrelated
+                ci_lower = group[metric].quantile(0.025)
+                ci_upper = group[metric].quantile(0.975)
+                record[metric.upper()] = f'{mean:.3f} CI[{ci_lower:.3f} {ci_upper:.3f} ]'
         else:
             for metric, col in [('RMSE', 'rmse'), ('MAE', 'mae'), ('R²', 'r2')]:
                 mean = group[col].mean()
-                std = group[col].std()
-                record[metric] = f'{mean:.3f} ± {std:.3f}'
+                # report confience interval instead of SD as these
+                # splits are autocorrelated
+                ci_lower = group[col].quantile(0.025)
+                ci_upper = group[col].quantile(0.975)
+                record[metric] = f'{mean:.3f} CI[{ci_lower:.3f} {ci_upper:.3f}'
 
         summary_records.append(record)
 

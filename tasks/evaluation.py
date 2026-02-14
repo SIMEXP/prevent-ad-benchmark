@@ -4,7 +4,7 @@ This module contains invoke tasks for running downstream prediction
 experiments and generating result visualizations.
 """
 from pathlib import Path
-from preventad_benchmark.evaluation import baseline_experiment, brainharmonix_experiment
+from preventad_benchmark.evaluation import baseline_experiment, brainharmonix_experiment, brainlm_experiment
 import invoke
 
 
@@ -78,3 +78,34 @@ def run_brainharmonix_experiment(c, experiment="all", output_dir=DEFAULT_OUTPUT_
 
     for emb_path, output_dir in zip(emb_paths, outputs):
         brainharmonix_experiment(emb_path=emb_path, output_dir=output_dir)
+
+
+# BrainLM embedding paths: {preprocessing}.brainlm{size}.embeddings.npz
+BRAINLM_EMB_DIR = Path("outputs/embeddings/brainlm")
+BRAINLM_PREPROCESSINGS = ["nozscore_brainlm", "zscore_brainlm", "nozscore_gigaconnectome", "zscore_gigaconnectome"]
+BRAINLM_SIZES = ["111M", "650M"]
+
+
+@invoke.task(
+    help={
+        "preprocessing": "Preprocessing variant: nozscore_brainlm, zscore_brainlm, nozscore_gigaconnectome, zscore_gigaconnectome, or all (default: all)",
+        "model-size": "Model size: 111M, 650M, or all (default: all)",
+        "output-dir": "Output directory for experiment results (default: outputs/downstreams/brainlm)",
+    }
+)
+def run_brainlm_experiment(c, preprocessing="all", model_size="all", output_dir=DEFAULT_OUTPUT_DIR / "brainlm"):
+    """Run downstream experiments with BrainLM embeddings.
+
+    Example:
+        inv evaluation.run-brainlm-experiment
+        inv evaluation.run-brainlm-experiment --preprocessing=nozscore_brainlm --model-size=650M
+    """
+    preps = BRAINLM_PREPROCESSINGS if preprocessing == "all" else [preprocessing]
+    sizes = BRAINLM_SIZES if model_size == "all" else [model_size]
+
+    for prep in preps:
+        for size in sizes:
+            emb_path = BRAINLM_EMB_DIR / f"{prep}.brainlm{size}.embeddings.npz"
+            out = Path(output_dir) / f"{prep}.brainlm{size}"
+            print(f"Running BrainLM experiment: {emb_path}")
+            brainlm_experiment(emb_path=str(emb_path), output_dir=str(out))

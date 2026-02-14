@@ -8,7 +8,7 @@ def finetune(c):
     print("Fine-tuning BrainHarmonix harmonizer with self-supervised objective...")
 
     # zscore experiment
-    cmd = "preventad-finetune-brainharmonix --dataset=data/processed/dataset-preventad.fmri.zscored.gigaconnectome.schaefer400.arrow --task=self-supervised --output-dir=outputs/finetune/brainharmonix/zscore.self-supervised --unfreeze-harmonizer --task=self-supervised  --epoch=25 --lr=1e-3 --weight-decay=0.01"
+    cmd = "preventad-finetune-brainharmonix --dataset=data/processed/dataset-preventad.fmri.zscored.gigaconnectome.schaefer400.arrow --task=self-supervised --output-dir=outputs/finetune/brainharmonix/zscore.self-supervised --task=self-supervised  --epoch=25 --lr=1e-3 --weight-decay=0.01"
 
     print(f"Running: {cmd}")
     c.run(cmd)
@@ -19,7 +19,7 @@ def finetune(c):
     c.run(cmd)
 
     # nozscore experiment
-    cmd = "preventad-finetune-brainharmonix --dataset=data/processed/dataset-preventad.fmri.NoZscore.gigaconnectome.schaefer400.arrow --task=self-supervised --output-dir=outputs/finetune/brainharmonix/nozscore.self-supervised --unfreeze-harmonizer --task=self-supervised  --epoch=25 --lr=1e-4 --weight-decay=0.01"
+    cmd = "preventad-finetune-brainharmonix --dataset=data/processed/dataset-preventad.fmri.NoZscore.gigaconnectome.schaefer400.arrow --task=self-supervised --output-dir=outputs/finetune/brainharmonix/nozscore.self-supervised --task=self-supervised  --epoch=25 --lr=1e-4 --weight-decay=0.01"
 
     print(f"Running: {cmd}")
     c.run(cmd)

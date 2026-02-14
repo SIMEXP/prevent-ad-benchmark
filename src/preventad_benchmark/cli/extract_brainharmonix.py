@@ -181,6 +181,11 @@ Examples:
         default="cuda" if torch.cuda.is_available() else "cpu",
         help="Device to use (default: cuda if available)",
     )
+    parser.add_argument(
+        "--is-finetuned",
+        action="store_true",
+        help="Whether to use fine-tuned models (default: False)",
+    )
 
     args = parser.parse_args()
 
@@ -195,13 +200,9 @@ Examples:
     # Load models
     print("\nLoading models...")
     harmonizer = load_harmonizer(args.harmonizer_ckpt, device, mode="inference")
-    if args.fmri_ckpt is None and args.t1_ckpt is None:
-        print("Try loading encoders from harmonizer checkpoint...")
-        fmri_encoder = harmonizer.fmri_encoder
-        t1_encoder = harmonizer.t1_encoder
-    else:
-        fmri_encoder = load_fmri_encoder(args.fmri_ckpt, args.gradient_path, args.geo_harm_path, device)
-        t1_encoder = load_t1_encoder(args.t1_ckpt, device, mode="inference")
+    fmri_encoder = load_fmri_encoder(args.fmri_ckpt, args.gradient_path, args.geo_harm_path, device, is_finetuned=args.is_finetuned)
+    t1_encoder = load_t1_encoder(args.t1_ckpt, device, mode="inference", is_finetuned=args.is_finetuned)
+
     print("Models loaded successfully")
 
     # Load dataset

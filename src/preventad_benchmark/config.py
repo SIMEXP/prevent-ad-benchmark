@@ -108,7 +108,7 @@ BRAINLM_MODEL_ARGUMENTS = {
 }
 
 BRAINLM_IMAGE_COLUMNS = {
-    "gigaconnectome": "robustscaler_timeseries",
+    "gigaconnectome": "raw_timeseries",
     "brainlm": "Subtract_Mean_Divide_Global_STD_Normalized_Recording",
 }
 

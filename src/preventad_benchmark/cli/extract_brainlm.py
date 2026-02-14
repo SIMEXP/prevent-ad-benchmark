@@ -1,7 +1,7 @@
 # cleaned up for using published weights for direct transfer with CLS token
 
 from transformers import ViTMAEConfig
-from datasets import load_from_disk, Dataset
+from datasets import load_from_disk
 import numpy as np
 import torch
 
@@ -16,6 +16,8 @@ try:
 except ImportError:
     print('not using flash attention')
 import argparse
+
+import numpy as np
 
 from preventad_benchmark.config import BRAINLM_MODEL_ARGUMENTS, BRAINLM_TIMESERIES_LENGTH
 
@@ -45,8 +47,14 @@ def main():
     )
     parser.add_argument(
         "--image-column-name",
-        default="robustscaler_timeseries",
-        help="Column name for the image data (default: robustscaler_timeseries)",
+        default="raw_timeseries",
+        help="Column name for the image data (default: raw_timeseries)",
+    )
+    parser.add_argument(
+        "--norm-params",
+        type=str,
+        default=None,
+        help="Path to .norm_params.npz file for dataset-level normalization (required for gigaconnectome raw_timeseries)",
     )
     args = parser.parse_args()
     inputs_path = args.dataset
@@ -55,10 +63,15 @@ def main():
     image_column_name = args.image_column_name
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    norm_params = None
+    if args.norm_params:
+        norm_params = dict(np.load(args.norm_params))
+
     timeseires_to_images_kargs = {
         "image_column_name": image_column_name,
         "timeseries_length": timeseries_length, # this is for developmental dataset, full length
-        "max_val_to_scale": None  # max_val_to_scale = 5.6430855  # this is weird.
+        "max_val_to_scale": None,  # max_val_to_scale = 5.6430855  # this is weird.
+        "norm_params": norm_params,
     }
 
     def transform_func(batch):
@@ -81,8 +94,6 @@ def main():
     train_ds.set_transform(transform_func)
 
     list_subject_id = []
-    list_sex = []
-    list_ageclass = []
     list_cls_tokens = []
     list_attn_cls_tokens = []
     all_embeddings = []
@@ -102,8 +113,6 @@ def main():
 
             attn_cls_token = get_attention_cls_token(encoder_output.attentions)
             list_subject_id.append(recording['participant_id'])
-            list_sex.append(recording['Sex'])  # need refactor
-            list_ageclass.append(recording['Candidate_Age'])  # need refactor
             list_attn_cls_tokens.append(attn_cls_token)
             list_cls_tokens.append(cls_token)
             all_embeddings.append(embedding)
@@ -123,18 +132,16 @@ def main():
         recording = np.array(recording, dtype=np.float32)
         all_recordings.append(recording)
 
-    results = {
-        'participant_id': list_subject_id,
-        'Sex': list_sex,   # need refactor
-        'Candidate_Age': list_ageclass,   # need refactor
-        'cls_token': list_attn_cls_tokens,
-        'cls_embedding': cls_embeds,
-        'mean_embedding': all_mean_embeddings,
-        'max_embedding': all_maxpool_embeddings,
-        'padded_recording': all_recordings
-    }
-    arrow_results = Dataset.from_dict(results)
-    arrow_results.save_to_disk(outputs_path)
+    Path(outputs_path).parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        outputs_path,
+        participant_ids=list_subject_id,
+        cls_token=np.concatenate(list_attn_cls_tokens, axis=0),
+        cls_embedding=cls_embeds,
+        mean_embedding=all_mean_embeddings,
+        max_embedding=all_maxpool_embeddings,
+    )
+    print(f"Saved embeddings to {outputs_path}")
 
 
 if __name__ == "__main__":

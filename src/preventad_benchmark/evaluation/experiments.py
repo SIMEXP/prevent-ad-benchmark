@@ -31,16 +31,16 @@ def baseline_experiment(input_dir, output_dir):
         ts = np.array(example['raw_timeseries'], dtype=np.float32)
         # Crop to timeseries_length (take first 140 timepoints)
         ts = ts[:timeseries_length, :]
-        ts_flatten.append(ts.T.flatten())  
-        ts_matrices.append(ts) 
+        ts_flatten.append(ts.T.flatten())
+        ts_matrices.append(ts)
 
     correlation_measure = ConnectivityMeasure(
         kind="correlation", vectorize=True, discard_diagonal=True
     )
     fc = correlation_measure.fit_transform(ts_matrices)
     # the loaded labels will have the same order as the feature
-    labels = load_prediction_targets(input_dir)  
-    
+    labels = load_prediction_targets(input_dir)
+
     # Timeseries -> PCA
     print("Running BrainHarmonix baseline: timeseries")
     run_downstream_experiment(
@@ -53,6 +53,48 @@ def baseline_experiment(input_dir, output_dir):
     run_downstream_experiment(
         fc, labels, output_dir, 'connectivity',
     )
+
+
+def brainharmonix_experiment(
+    emb_path: str = None,
+    output_dir: str = 'outputs/downstreams/brainharmonix/',
+
+) -> None:
+    """Run downstream experiments with BrainHarmonix features."""
+    features = {}
+    emb = np.load(emb_path, allow_pickle=True)
+    features['harmonizer_cls'] = emb["harmonizer"][:, 0, :]
+    features['harmonizer_latent_mean'] = emb["harmonizer"][:, 1:, :].mean(axis=1)
+    features['t1_mean'] = emb['t1'].mean(axis=1)
+    features['fmri_mean'] = emb['fmri'].mean(axis=1)
+
+    labels = load_prediction_targets(participant_ids=emb['participant_ids'].tolist())
+
+    # Embeddings are 768-dim -> no PCA
+    for feat_name, feat_data in features.items():
+        print(f"Running experiments with {feat_name} features, shape: {feat_data.shape}")
+        run_downstream_experiment(feat_data, labels, output_dir, feat_name)
+
+
+def brainlm_experiment(emb_path, output_dir):
+    """Run downstream experiments with BrainLM features.
+
+    Args:
+        emb_path: Path to .npz file with BrainLM embeddings.
+        output_dir: Output directory for experiment results.
+    """
+    emb = np.load(emb_path, allow_pickle=True)
+    features = {
+        'cls_token': emb['cls_token'].squeeze(),
+        'cls_embedding': emb['cls_embedding'],
+        'mean_embedding': emb['mean_embedding'],
+        'max_embedding': emb['max_embedding'],
+    }
+    labels = load_prediction_targets(participant_ids=emb['participant_ids'].tolist())
+
+    for feat_name, feat_data in features.items():
+        print(f"Running experiments with {feat_name} features, shape: {feat_data.shape}")
+        run_downstream_experiment(feat_data, labels, output_dir, feat_name)
 
 
 def run_downstream_experiment(features, labels, output_dir, prefix, pca_components=None):

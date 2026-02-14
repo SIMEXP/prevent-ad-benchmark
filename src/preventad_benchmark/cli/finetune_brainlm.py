@@ -11,6 +11,7 @@ from preventad_benchmark.models.brainlm_mae.replace_vitmae_attn_with_flash_attn 
 from transformers import ViTMAEConfig, Trainer, TrainingArguments
 
 from datasets import load_from_disk, DatasetDict
+import numpy as np
 import torch
 from preventad_benchmark.models.brainlm_mae.utils import timeseires_to_images, collate_fn
 from preventad_benchmark.models.brainlm_mae.metrics import MetricsCalculator
@@ -49,8 +50,8 @@ def main():
     )
     parser.add_argument(
         "--image-column-name",
-        default="robustscaler_timeseries",
-        help="Column name for the image data (default: robustscaler_timeseries)",
+        default="raw_timeseries",
+        help="Column name for the image data (default: raw_timeseries)",
     )
     parser.add_argument(
         "--model-params",
@@ -58,26 +59,47 @@ def main():
         choices=["111M", "650M"],
         help="BrainLM model size (default: 111M)",
     )
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        default=None,
+        help="Path to pretrained BrainLM model (default: ./models/brainlm/vitmae_{model-params})",
+    )
+    parser.add_argument(
+        "--norm-params",
+        type=str,
+        default=None,
+        help="Path to .norm_params.npz file for dataset-level normalization (required for gigaconnectome raw_timeseries)",
+    )
     args = parser.parse_args()
     inputs_path = args.dataset
     outputs_path = args.output_dir
     image_column_name = args.image_column_name
     model_params = args.model_params
+    model_path = args.model_path or f"./models/brainlm/vitmae_{model_params}"
+
+    norm_params = None
+    if args.norm_params:
+        norm_params = dict(np.load(args.norm_params))
+
     timeseires_to_images_kargs = {
         "image_column_name": image_column_name,
         "timeseries_length": timeseries_length, # this is for developmental dataset, full length
         "axis_index": "Y",
-        "max_val_to_scale": None  # max_val_to_scale = 5.6430855  # this is weird.
+        "max_val_to_scale": None,  # max_val_to_scale = 5.6430855  # this is weird.
+        "norm_params": norm_params,
     }
     def transform_func(batch):
         return timeseires_to_images(batch, **timeseires_to_images_kargs)
 
-    fmri_ds = load_from_disk(inputs_path).class_encode_column("Sex")
     fmri_ds = load_from_disk(inputs_path)
+    # Detect sex column name (BrainLM native: 'Sex', gigaconnectome: 'sex')
+    sex_col = 'Sex' if 'Sex' in fmri_ds.column_names else 'sex'
+    fmri_ds = fmri_ds.class_encode_column(sex_col)
     # 80% train, 20% test
     train_test = fmri_ds.train_test_split(
         train_size=0.8,
-        stratify_by_column='Sex'  # this is an important detail
+        stratify_by_column=sex_col
     )
     # gather everyone if you want to have a single DatasetDict
     train_test_dataset = DatasetDict({
@@ -89,11 +111,11 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     replace_vitmae_attn_with_flash_attn()
 
-    config = ViTMAEConfig.from_pretrained(f"./models/brainlm/vitmae_{model_params}")
+    config = ViTMAEConfig.from_pretrained(model_path)
     config.update(model_arguments)
     config.train_mode = "auto_encode"
     model = ViTMAEForPreTraining.from_pretrained(
-            f"./models/brainlm/vitmae_{model_params}",
+            model_path,
             config=config,
         ).to(device)
 
@@ -111,10 +133,11 @@ def main():
         remove_unused_columns=False,
         include_for_metrics=['inputs'],
         logging_steps=1,
-        num_train_epochs=50,
-        learning_rate=5e-05,
-        per_device_eval_batch_size=16,
-        per_device_train_batch_size=16,
+        num_train_epochs=25,
+        learning_rate=1e-05,
+        weight_decay=0.01,
+        per_device_eval_batch_size=4,
+        per_device_train_batch_size=4,
     )
     # Initialize our trainer
     trainer = Trainer(

@@ -140,11 +140,6 @@ Examples:
         default=0.1,
         help="Dropout rate for supervised tasks (default: 0.1)",
     )
-    parser.add_argument(
-        "--unfreeze-harmonizer",
-        action="store_true",
-        help="Unfreeze harmonizer for supervised tasks (default: frozen)",
-    )
 
     # Training arguments
     parser.add_argument("--epochs", type=int, default=30, help="Number of epochs (default: 30)")
@@ -256,10 +251,9 @@ Examples:
             fmri_encoder=fmri_encoder,
             t1_encoder=t1_encoder,
             harmonizer=harmonizer,
-            freeze_stage0_encoders=not args.unfreeze_harmonizer,
         )
         # Use lower learning rate for self-supervised
-        if args.lr == 1e-4 and not args.unfreeze_harmonizer:  # Default was not changed
+        if args.lr == 1e-4:  # Default was not changed
             args.lr = 1e-5
             print(f"Using lower learning rate for self-supervised: {args.lr}")
     else:
@@ -270,7 +264,6 @@ Examples:
             num_classes=dataset.num_classes,
             task=args.task,
             pooling=args.pooling,
-            freeze_encoders=not args.unfreeze_harmonizer,
             hidden_dim=args.hidden_dim,
             dropout=args.dropout,
         )
@@ -363,10 +356,6 @@ Examples:
                 args.task,
                 label_map=dataset.label_map if args.task == "classification" else None,
             )
-            # save the fmri encoder and t1 encoder checkpoints as well for reproducibility
-            if args.unfreeze_harmonizer:
-                torch.save(model.fmri_encoder.state_dict(), args.output_dir / "fmri_encoder_checkpoint_best.pt")
-                torch.save(model.t1_encoder.state_dict(), args.output_dir / "t1_encoder_checkpoint_best.pt")
 
     # Save final model
     save_checkpoint(
@@ -378,9 +367,6 @@ Examples:
         args.task,
         label_map=dataset.label_map if args.task == "classification" else None,
     )
-    if args.unfreeze_harmonizer:
-        torch.save(model.fmri_encoder.state_dict(), args.output_dir / "fmri_encoder_checkpoint_final.pt")
-        torch.save(model.t1_encoder.state_dict(), args.output_dir / "t1_encoder_checkpoint_final.pt")
 
     # Save config
     config = {
