@@ -1,11 +1,16 @@
+import re
+
 import numpy as np
 import pandas as pd
 from nilearn.datasets import fetch_atlas_schaefer_2018
 from pathlib import Path
 from nilearn import image
-from datasets import Dataset
+from datasets import Dataset, load_from_disk
 import torch
 from tqdm import tqdm
+
+from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.impute import SimpleImputer
 
 from preventad_benchmark.evaluation.targets import load_prediction_targets
 from preventad_benchmark.config import (
@@ -70,10 +75,15 @@ def compute_normalization_params(dataset):
         dict: Dictionary with keys 'mean', 'std', 'median', 'iqr'.
     """
     all_mean_data = [
-        np.mean(d["raw_timeseries"], axis=0)  # (number of ROIs, )
+        np.nanmean(d["raw_timeseries"], axis=0)  # (number of ROIs, )
         for d in dataset
     ]
-    mean = np.mean(all_mean_data, axis=0)
+    overall_mean = np.nanmean(all_mean_data)
+    imp = SimpleImputer(missing_values=np.nan, strategy='constant', fill_value=overall_mean)
+    imp.fit(all_mean_data)
+    all_mean_data = imp.transform(all_mean_data)
+
+    mean = np.nanmean(all_mean_data, axis=0)
     std = np.std(all_mean_data, axis=0)
     median = np.median(all_mean_data, axis=0)
     q75 = np.percentile(all_mean_data, 75, axis=0)
@@ -81,9 +91,9 @@ def compute_normalization_params(dataset):
     iqr = q75 - q25
     return {
         'mean': mean,
-        'std': std,
+        'std': std + 1e-9,  # avoid 0
         'median': median,
-        'iqr': iqr
+        'iqr': iqr + 1e-9  # avoid 0
     }
 
 
@@ -212,16 +222,6 @@ def convert_to_arrow_dataset(t1_output_dir, output_ts_dir, output_arrow_dir, seg
     arrow_dataset.save_to_disk(dataset_path=output_arrow_dir)
     print(f"Saved Arrow dataset to {output_arrow_dir}")
 
-    # Compute normalization parameters
-    norm_params = compute_normalization_params(arrow_dataset)
-    print("\nNormalization parameters:")
-    for key, value in norm_params.items():
-        print(f"  {key}: {value}")
-
-    # save normalization parameters
-    norm_params_path = str(output_arrow_dir).replace(".arrow", ".norm_params.npz")
-    np.savez(norm_params_path, **norm_params)
-
     # Print dataset info
     print(f"\nDataset info:")
     print(f"  - Number of samples: {len(arrow_dataset)}")
@@ -230,3 +230,71 @@ def convert_to_arrow_dataset(t1_output_dir, output_ts_dir, output_arrow_dir, seg
         sample_t1 = torch.load(arrow_dataset[0]["t1_filepath"], weights_only=True)
         print(f"  - Time series shape: {np.array(sample_ts).shape}")
         print(f"  - T1 image shape: {np.array(sample_t1).shape}")
+
+
+def create_train_test_split(
+    phenotype_path=None,
+    test_size=0.2,
+    random_state=42,
+    n_splits=20,
+):
+    """Create stratified train/test splits.
+
+    Stratifies using sex, progess2mci labels.
+
+    Args:
+        phenotype_path: Path to subject-level targets TSV. Defaults to
+            PHENOTYPE_TARGETS.
+        test_size: Fraction of data for test set. Default 0.2.
+        random_state: Random seed for reproducibility. Default 42.
+        n_splits: Number of shuffle splits to generate. Default 20.
+
+    Returns:
+        list of dicts, each with 'train' and 'test' keys containing
+        lists of participant IDs (format: "sub-MTL0001_ses-BL00A_task-rest_run-1").
+    """
+    phenotype = load_phenotype(apply_qc=True)
+    identifiers = phenotype.index.tolist()
+    # Load prediction targets aligned to participant order
+    targets = load_prediction_targets(
+        participant_ids=identifiers,
+        phenotype_path=phenotype_path,
+    )
+
+    # Build composite stratification key from categorical targets
+    categorical_keys = ["sex", "progess2mci"]
+    n = len(identifiers)
+    composite = []
+    for i in range(n):
+        parts = []
+        for key in categorical_keys:
+            val = targets[key][i]
+            parts.append(str(val) if val is not None and val == val else "missing")
+        composite.append("_".join(parts))
+
+    composite = np.array(composite)
+    indices = np.arange(n)
+
+    try:
+        splitter = StratifiedShuffleSplit(
+            n_splits=n_splits, test_size=test_size, random_state=random_state
+        )
+        splits = list(splitter.split(indices, composite))
+    except ValueError:
+        print("Fall back to sex")
+        # Fall back to sex-only stratification if composite groups are too small
+        sex_labels = np.array([
+            str(v) if v is not None else "missing" for v in targets["sex"]
+        ])
+        splitter = StratifiedShuffleSplit(
+            n_splits=n_splits, test_size=test_size, random_state=random_state
+        )
+        splits = list(splitter.split(indices, sex_labels))
+
+    return [
+        {
+            "train": [identifiers[i] for i in train_idx],
+            "test": [identifiers[i] for i in test_idx],
+        }
+        for train_idx, test_idx in splits
+    ]

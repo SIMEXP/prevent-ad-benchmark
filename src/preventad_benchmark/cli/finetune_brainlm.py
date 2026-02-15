@@ -6,6 +6,9 @@ https://github.com/Shef-AIRE/FMM_TC/blob/main/FMM_TC-tutorial.ipynb
 https://github.com/wenhui0206/MeTSK/blob/main/meta_learning.py#L8
 BrainLM/continue_train_same_wandb.py
 """
+import json
+from pathlib import Path
+
 from preventad_benchmark.models.brainlm_mae.modeling_vit_mae_with_padding import ViTMAEForPreTraining
 from preventad_benchmark.models.brainlm_mae.replace_vitmae_attn_with_flash_attn import replace_vitmae_attn_with_flash_attn
 from transformers import ViTMAEConfig, Trainer, TrainingArguments
@@ -15,6 +18,7 @@ import numpy as np
 import torch
 from preventad_benchmark.models.brainlm_mae.utils import timeseires_to_images, collate_fn
 from preventad_benchmark.models.brainlm_mae.metrics import MetricsCalculator
+from preventad_benchmark.dataset.utils import compute_normalization_params
 import argparse
 try:
     from preventad_benchmark.models.brainlm_mae.replace_vitmae_attn_with_flash_attn import replace_vitmae_attn_with_flash_attn
@@ -66,10 +70,10 @@ def main():
         help="Path to pretrained BrainLM model (default: ./models/brainlm/vitmae_{model-params})",
     )
     parser.add_argument(
-        "--norm-params",
-        type=str,
-        default=None,
-        help="Path to .norm_params.npz file for dataset-level normalization (required for gigaconnectome raw_timeseries)",
+        "--split-index",
+        type=int,
+        default=0,
+        help="Index of the train/test split to use for finetuning (default: 0)",
     )
     args = parser.parse_args()
     inputs_path = args.dataset
@@ -78,9 +82,30 @@ def main():
     model_params = args.model_params
     model_path = args.model_path or f"./models/brainlm/vitmae_{model_params}"
 
+    fmri_ds = load_from_disk(inputs_path)
+
+    # Load pre-computed train/test split
+    split_path = Path("data/processed/train_test_split.json")
+    with open(split_path) as f:
+        split_ids = json.load(f)
+
+    train_ids = set(split_ids[args.split_index]["train"])
+
+    # Filter to training set only, then split into train/val for finetuning
+    # BrainLM participant_ids may have extra suffixes (e.g. _space-..._desc-...);
+    # match by checking if any split ID is a prefix of the dataset participant_id
+    train_ds = fmri_ds.filter(lambda x: any(x["participant_id"].startswith(tid) for tid in train_ids))
+    print(f"Training set: {len(train_ds)} samples (from {len(fmri_ds)} total)")
+
+    # Compute normalization params from training set only to prevent leakage
     norm_params = None
-    if args.norm_params:
-        norm_params = dict(np.load(args.norm_params))
+    print("Computing normalization parameters from training set only...")
+    norm_params = compute_normalization_params(train_ds)
+    # Save training-set norm_params for use during extraction
+    norm_params_path = Path(outputs_path) / "train_norm_params.npz"
+    norm_params_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(norm_params_path, **norm_params)
+    print(f"Saved training-set norm params to {norm_params_path}")
 
     timeseires_to_images_kargs = {
         "image_column_name": image_column_name,
@@ -92,19 +117,17 @@ def main():
     def transform_func(batch):
         return timeseires_to_images(batch, **timeseires_to_images_kargs)
 
-    fmri_ds = load_from_disk(inputs_path)
     # Detect sex column name (BrainLM native: 'Sex', gigaconnectome: 'sex')
-    sex_col = 'Sex' if 'Sex' in fmri_ds.column_names else 'sex'
-    fmri_ds = fmri_ds.class_encode_column(sex_col)
-    # 80% train, 20% test
-    train_test = fmri_ds.train_test_split(
-        train_size=0.8,
+    sex_col = 'Sex' if 'Sex' in train_ds.column_names else 'sex'
+    train_ds = train_ds.class_encode_column(sex_col)
+    # 80/20 train/val split within the training set
+    train_val = train_ds.train_test_split(
+        test_size=0.2,
         stratify_by_column=sex_col
     )
-    # gather everyone if you want to have a single DatasetDict
     train_test_dataset = DatasetDict({
-        'train': train_test['train'],
-        'test': train_test['test']})
+        'train': train_val['train'],
+        'test': train_val['test']})
 
     train_test_dataset.set_transform(transform_func)
 

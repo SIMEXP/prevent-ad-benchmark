@@ -3,6 +3,7 @@
 This module contains invoke tasks for preprocessing fMRI and T1 data
 using different pipelines (BrainLM, GigaConnectome, BrainHarmonix).
 """
+import json
 import os
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from nilearn.datasets import fetch_atlas_schaefer_2018
 from preventad_benchmark.dataset.brainlm import convert_fMRIvols_to_A424, convert_to_brainlm_arrow_datasets
 from preventad_benchmark.dataset.structural import preprocess_t1_images
 from preventad_benchmark.dataset.functional import denoise_dataset, extract_timeseries_from_nifti
-from preventad_benchmark.dataset.utils import convert_to_arrow_dataset, brain_region_coord_to_arrow, resample_atlas
+from preventad_benchmark.dataset.utils import convert_to_arrow_dataset, brain_region_coord_to_arrow, resample_atlas, create_train_test_split
 from preventad_benchmark.config import TIMESERIES_LENGTH
 
 
@@ -150,3 +151,40 @@ def timeseries(c, fmri_source_dir=None, t1_source_dir=None, ts_output_dir=None, 
         convert_to_brainlm_arrow_datasets(str(ts_output_dir), str(output_dir), dataset_name='preventad', ts_min_length=TIMESERIES_LENGTH, compute_Stats=True)
     else:
         raise ValueError(f"unsupported workflow {workflow}.")
+
+
+@invoke.task(
+    help={
+        "output-dir": f"Output directory for split JSON (default: {DEFAULT_PROCESSED_DIR})",
+        "test-size": "Fraction of data for test set (default: 0.2)",
+        "random-state": "Random seed for reproducibility (default: 42)",
+        "n-splits": "Number of stratified shuffle splits (default: 20)",
+    }
+)
+def split(c, output_dir=None, test_size=0.2, random_state=42, n_splits=20):
+    """Create stratified train/test splits and save participant ID lists.
+
+    Produces a JSON file with a list of 20 splits, each containing
+    'train' and 'test' keys with participant IDs. The splits are
+    stratified by sex and progess2mci.
+
+    Example:
+        inv prepare.split
+        inv prepare.split --n-splits=10
+    """
+    output_dir = Path(output_dir) if output_dir else DEFAULT_PROCESSED_DIR
+
+    splits = create_train_test_split(
+        test_size=test_size,
+        random_state=random_state,
+        n_splits=n_splits,
+    )
+
+    output_path = output_dir / "train_test_split.json"
+    with open(output_path, "w") as f:
+        json.dump(splits, f, indent=2)
+
+    n_train = len(splits[0]["train"])
+    n_test = len(splits[0]["test"])
+    print(f"{len(splits)} splits, each: Train={n_train}, Test={n_test} ({n_test / (n_train + n_test):.1%})")
+    print(f"Saved to {output_path}")

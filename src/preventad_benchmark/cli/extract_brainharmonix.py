@@ -17,11 +17,14 @@ References:
 """
 
 import argparse
+import json
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 from tqdm import tqdm
+from datasets import load_from_disk
 
 from preventad_benchmark.config import (
     BRAINHARMONIX_CHECKPOINTS,
@@ -33,6 +36,8 @@ from preventad_benchmark.models.brainharmonix.loaders import (
     load_t1_encoder,
 )
 from preventad_benchmark.models.brainharmonix.utils import BrainHarmonixDataset
+from preventad_benchmark.evaluation.targets import load_prediction_targets
+from preventad_benchmark.evaluation import run_test_experiment
 
 # Default paths for CLI argument defaults
 DEFAULT_GRADIENT_PATH = str(BRAINHARMONIX_POS_EMBED_PATHS["gradient"])
@@ -124,8 +129,8 @@ Examples:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("outputs/embeddings/brainharmonix"),
-        help="Output directory for embeddings (default: outputs/embeddings/brainharmonix)",
+        default=Path("outputs/downstreams/brainharmonix"),
+        help="Output directory for embeddings (default: outputs/downstreams/brainharmonix)",
     )
     parser.add_argument(
         "--output-prefix",
@@ -184,7 +189,13 @@ Examples:
     parser.add_argument(
         "--is-finetuned",
         action="store_true",
-        help="Whether to use fine-tuned models (default: False)",
+        help="Whether to use fine-tuned encoders (default: False)",
+    )
+    parser.add_argument(
+        "--split-index",
+        type=int,
+        default=0,
+        help="Index of the train/test split; extraction runs on the test set (default: 0)",
     )
 
     args = parser.parse_args()
@@ -205,41 +216,99 @@ Examples:
 
     print("Models loaded successfully")
 
-    # Load dataset
+    # Load dataset and filter to test set
     print("\nLoading dataset...")
-    dataset = BrainHarmonixDataset(str(args.dataset))
-    dataloader = torch.utils.data.DataLoader(
-        dataset,
+    arrow_ds = load_from_disk(str(args.dataset))
+    split_path = Path("data/processed/train_test_split.json")
+    with open(split_path) as f:
+        split_ids = json.load(f)
+    train_ids = set(split_ids[args.split_index]["train"])
+    train_ds = arrow_ds.filter(lambda x: x["participant_id"] in train_ids)
+    print(f"Training set: {len(train_ds)} samples (from {len(arrow_ds)} total)")
+
+    train_dataset = BrainHarmonixDataset(train_ds)
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset,
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
         pin_memory=True,
     )
-    participant_ids = [d["participant_id"] for d in dataset]
+    participant_ids = [d["participant_id"] for d in train_dataset]
     # Extract embeddings
     print("\nExtracting embeddings...")
     fmri_embeds, t1_embeds, harmonizer_embeds = extract_embeddings(
-        dataloader, fmri_encoder, t1_encoder, harmonizer, device
+        train_dataloader, fmri_encoder, t1_encoder, harmonizer, device
     )
 
     print(f"\nfMRI embeddings shape: {fmri_embeds.shape}")
     print(f"T1 embeddings shape: {t1_embeds.shape}")
     print(f"Harmonizer embeddings shape: {harmonizer_embeds.shape}")
 
-    # Save embeddings as npz files
-    embedding_path = args.output_dir / f"{args.output_prefix}.embeddings.npz"
-
-    np.savez(
-        embedding_path,
+    train_emb = dict(
         fmri=fmri_embeds.numpy(),
         t1=t1_embeds.numpy(),
         harmonizer=harmonizer_embeds.numpy(),
         participant_ids=participant_ids
     )
 
-    print("\nSaved embeddings to:")
-    print(f"  - {embedding_path}")
+    train_features = {}
+    train_features['harmonizer_cls'] = train_emb["harmonizer"][:, 0, :]
+    train_features['harmonizer_latent_mean'] = train_emb["harmonizer"][:, 1:, :].mean(axis=1)
+    train_features['t1_mean'] = train_emb['t1'].mean(axis=1)
+    train_features['fmri_mean'] = train_emb['fmri'].mean(axis=1)
+    train_labels = load_prediction_targets(participant_ids=participant_ids)
 
+    # do the same on test
+    test_ids = set(split_ids[args.split_index]["test"])
+    test_ds = arrow_ds.filter(lambda x: x["participant_id"] in test_ids)
+    print(f"Test set: {len(test_ds)} samples (from {len(arrow_ds)} total)")
+
+    test_dataset = BrainHarmonixDataset(test_ds)
+    test_dataloader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+    participant_ids = [d["participant_id"] for d in test_dataset]
+    # Extract embeddings
+    print("\nExtracting embeddings...")
+    fmri_embeds, t1_embeds, harmonizer_embeds = extract_embeddings(
+        test_dataloader, fmri_encoder, t1_encoder, harmonizer, device
+    )
+
+    print(f"\nfMRI embeddings shape: {fmri_embeds.shape}")
+    print(f"T1 embeddings shape: {t1_embeds.shape}")
+    print(f"Harmonizer embeddings shape: {harmonizer_embeds.shape}")
+
+    test_emb = dict(
+        fmri=fmri_embeds.numpy(),
+        t1=t1_embeds.numpy(),
+        harmonizer=harmonizer_embeds.numpy(),
+        participant_ids=participant_ids
+    )
+
+    test_features = {}
+    test_features['harmonizer_cls'] = test_emb["harmonizer"][:, 0, :]
+    test_features['harmonizer_latent_mean'] = test_emb["harmonizer"][:, 1:, :].mean(axis=1)
+    test_features['t1_mean'] = test_emb['t1'].mean(axis=1)
+    test_features['fmri_mean'] = test_emb['fmri'].mean(axis=1)
+    test_labels = load_prediction_targets(participant_ids=participant_ids)
+
+    test_split_results = []
+    for feat_name in test_features.keys():
+        print(f"Running experiments with {feat_name} features, shape: {test_features[feat_name].shape}")
+        feat_results = run_test_experiment(train_features[feat_name], train_labels, test_features[feat_name], test_labels, feat_name)
+        feat_results["Features"] = feat_name
+        test_split_results.append(feat_results)
+
+    test_split_results = pd.concat(test_split_results).reset_index(drop=True)
+    test_split_results['split'] = args.split_index
+    embedding_path = args.output_dir / f"{args.output_prefix}.split{args.split_index}.tsv"
+    embedding_path.parent.mkdir(parents=True, exist_ok=True)
+    test_split_results.to_csv(embedding_path, sep='\t')
 
 if __name__ == "__main__":
     main()

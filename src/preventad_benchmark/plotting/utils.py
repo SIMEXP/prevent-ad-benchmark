@@ -11,8 +11,10 @@ FEATURE_NAMES = {
     't1_mean': 'T1 (mean)',
     'harmonizer_cls': 'Harmonizer (CLS)',
     'harmonizer_latent_mean': 'Harmonizer (latent)',
-    'cls-token': 'CLS Token',
-    'cls-embedding': 'CLS Embedding',
+    'cls_token': 'CLS Token',
+    'cls_embedding': 'CLS Embedding',
+    'mean_embedding': 'Mean Embedding',
+    'max_embedding': 'Max Embedding',
 }
 
 # Target display names
@@ -26,6 +28,9 @@ TARGET_NAMES = {
     'abSUVR': 'β-amyloid SUVR',
     'abSUVRbin': 'β-amyloid SUVR > 1.26',
 }
+
+# Reverse lookup: display name -> target key
+_TARGET_NAMES_REVERSE = {v: k for k, v in TARGET_NAMES.items()}
 
 
 def parse_filename(filepath: Path) -> dict:
@@ -42,8 +47,8 @@ def parse_filename(filepath: Path) -> dict:
     return None
 
 
-def load_results(input_dirs: list[Path]) -> pd.DataFrame:
-    """Load all result files from multiple directories into a single DataFrame."""
+def _load_baseline_results(input_dirs: list[Path]) -> pd.DataFrame:
+    """Load baseline result files (x-{feat}_y-{target}_{clf}_prediction.tsv format)."""
     records = []
 
     for input_dir in input_dirs:
@@ -52,7 +57,7 @@ def load_results(input_dirs: list[Path]) -> pd.DataFrame:
             print(f"Warning: {input_dir} does not exist, skipping")
             continue
 
-        source = input_dir.name  # e.g., 'baseline' or 'brainharmonix'
+        source = input_dir.name  # e.g., 'baseline.brainharmonix'
         files = list(input_dir.glob('*.tsv'))
         print(f"  Found {len(files)} files in {source}")
         variation, foundation_model = source.split('.')
@@ -95,6 +100,94 @@ def load_results(input_dirs: list[Path]) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
+def _load_foundation_results(input_dirs: list[Path]) -> pd.DataFrame:
+    """Load foundation model result files ({variation}.{model}.split{N}.tsv format)."""
+    records = []
+
+    for input_dir in input_dirs:
+        input_dir = Path(input_dir).resolve()
+        if not input_dir.exists():
+            print(f"Warning: {input_dir} does not exist, skipping")
+            continue
+
+        files = sorted(input_dir.glob('*.split*.tsv'))
+        print(f"  Found {len(files)} split files in {input_dir.name}")
+
+        for filepath in files:
+            # Parse filename: {variation}.{foundation_model}.split{N}.tsv
+            match = re.match(r'(.+)\.(\w+)\.split(\d+)\.tsv', filepath.name)
+            if match is None:
+                continue
+            variation = match.group(1)
+            foundation_model = match.group(2)
+            split_idx = int(match.group(3))
+
+            # Determine atlas from model name
+            if 'brainharmonix' in foundation_model.lower():
+                atlas = 'Schaefer400'
+            elif 'brainlm' in foundation_model.lower():
+                atlas = 'A424'
+            else:
+                atlas = foundation_model
+
+            df = pd.read_csv(filepath, sep='\t', index_col=0)
+
+            for _, row in df.iterrows():
+                # Reverse-lookup Target display name -> target key
+                target_display = row['Target']
+                target_key = _TARGET_NAMES_REVERSE.get(target_display, target_display)
+                feature = row['Features']
+                classifier = row['Classifier'].lower()
+
+                # Determine task type from available columns
+                is_classification = pd.notna(row.get('test_acc'))
+
+                record = {
+                    'feature': feature,
+                    'target': target_key,
+                    'classifier': classifier,
+                    'foundation_model': foundation_model,
+                    'variation': variation,
+                    'atlas': atlas,
+                    'split': split_idx,
+                }
+
+                if is_classification:
+                    record['accuracy'] = row['test_acc']
+                    record['auc'] = row['test_auc']
+                    record['f1'] = row['test_f1']
+                    record['task_type'] = 'classification'
+                else:
+                    record['rmse'] = -row['test_nrmse']
+                    record['mae'] = -row['test_nmae']
+                    record['r2'] = row['test_r2']
+                    record['task_type'] = 'regression'
+
+                records.append(record)
+
+    return pd.DataFrame(records)
+
+
+def load_results(input_dirs: list[Path]) -> pd.DataFrame:
+    """Load all result files from multiple directories into a single DataFrame.
+
+    Auto-detects format: if any directory contains *.split*.tsv files,
+    uses foundation model loader; otherwise uses baseline loader.
+    """
+    # Check if any directory has split files
+    has_split_files = False
+    for d in input_dirs:
+        d = Path(d).resolve()
+        if d.exists() and list(d.glob('*.split*.tsv')):
+            has_split_files = True
+            break
+
+    if has_split_files:
+        return _load_foundation_results(input_dirs)
+    else:
+        return _load_baseline_results(input_dirs)
+
+
 def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFrame:
     """Create summary table with mean ± std for all metrics."""
     summary_records = []
@@ -116,7 +209,7 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFram
                 # splits are autocorrelated
                 ci_lower = group[metric].quantile(0.025)
                 ci_upper = group[metric].quantile(0.975)
-                record[metric.upper()] = f'{mean:.3f} CI[{ci_lower:.3f} {ci_upper:.3f} ]'
+                record[metric.upper()] = f'{mean:.3f} [{ci_lower:.3f} {ci_upper:.3f}]'
         else:
             for metric, col in [('RMSE', 'rmse'), ('MAE', 'mae'), ('R²', 'r2')]:
                 mean = group[col].mean()
@@ -124,7 +217,7 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFram
                 # splits are autocorrelated
                 ci_lower = group[col].quantile(0.025)
                 ci_upper = group[col].quantile(0.975)
-                record[metric] = f'{mean:.3f} CI[{ci_lower:.3f} {ci_upper:.3f}'
+                record[metric] = f'{mean:.3f} [{ci_lower:.3f} {ci_upper:.3f}]'
 
         summary_records.append(record)
 
@@ -132,5 +225,20 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFram
 
     if output_dir:
         output_dir.mkdir(parents=True, exist_ok=True)
-        summary_df.to_csv(output_dir / 'summary_table.tsv', index=False, sep='\t')
+
+        clf_cols = ['Foundation Model', 'Atlas', 'Variation', 'Feature', 'Target', 'Classifier', 'ACCURACY', 'AUC', 'F1']
+        reg_cols = ['Foundation Model', 'Atlas', 'Variation', 'Feature', 'Target', 'Classifier', 'RMSE', 'MAE', 'R²']
+
+        clf_df = summary_df[summary_df['ACCURACY'].notna()][
+            [c for c in clf_cols if c in summary_df.columns]
+        ]
+        reg_df = summary_df[summary_df['RMSE'].notna()][
+            [c for c in reg_cols if c in summary_df.columns]
+        ]
+
+        if not clf_df.empty:
+            clf_df.to_csv(output_dir / 'summary_classification.tsv', index=False, sep='\t')
+        if not reg_df.empty:
+            reg_df.to_csv(output_dir / 'summary_regression.tsv', index=False, sep='\t')
+
     return summary_df

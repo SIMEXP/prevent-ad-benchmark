@@ -11,24 +11,16 @@ PROJECT_ROOT = Path(__file__).parents[1]
 
 # Default input directories (absolute paths)
 INPUT_DIRS = {
-    'baseline':[
+    'baseline': [
         PROJECT_ROOT / 'outputs/downstreams/baseline.brainharmonix',
         PROJECT_ROOT / 'outputs/downstreams/baseline.brainlm',
     ],
-    'brainharmonix':[
-        PROJECT_ROOT / 'outputs/downstreams/brainharmonix/zscore_finetuned.brainharmonix',
-        PROJECT_ROOT / 'outputs/downstreams/brainharmonix/zscore.brainharmonix',
-        PROJECT_ROOT / 'outputs/downstreams/brainharmonix/nozscore_finetuned.brainharmonix',
-        PROJECT_ROOT / 'outputs/downstreams/brainharmonix/nozscore.brainharmonix',
+    'brainharmonix': [
+        PROJECT_ROOT / 'outputs/downstreams/brainharmonix',
     ],
-    'brainlm':[
-        PROJECT_ROOT / 'outputs/downstreams/nozscore.brainlm.111M.direct_transfer',
-        PROJECT_ROOT / 'outputs/downstreams/nozscore.brainlm.650M.direct_transfer',
-        PROJECT_ROOT / 'outputs/downstreams/zscore.gigaconnectome.111M.direct_transfer',
-        PROJECT_ROOT / 'outputs/downstreams/zscore.gigaconnectome.650M.direct_transfer',
-        PROJECT_ROOT / 'outputs/downstreams/nozscore.brainlm.111M.finetuned',
-        PROJECT_ROOT / 'outputs/downstreams/zscore.gigaconnectome.111M.finetuned',
-    ]
+    'brainlm': [
+        PROJECT_ROOT / 'outputs/downstreams/brainlm',
+    ],
 }
 @invoke.task(
     help={
@@ -36,7 +28,7 @@ INPUT_DIRS = {
         "output-dir": "Directory to save summary table (default: outputs/reports/baseline/)",
     }
 )
-def generate_summary(c, experiment='baseline', output_dir=PROJECT_ROOT / 'outputs/reports/baseline/'):
+def generate_summary(c, experiment='baseline', output_dir=PROJECT_ROOT / 'outputs/reports/'):
     """Generate summary table from downstream experiment results.
     The default will only include the baseline experiments, but you can specify other directories with the --input-dirs argument.
 
@@ -46,4 +38,4 @@ def generate_summary(c, experiment='baseline', output_dir=PROJECT_ROOT / 'output
     """
     input_dirs = INPUT_DIRS[experiment]
     df = load_results(input_dirs)
-    make_summary_table(df, output_dir=output_dir)
+    make_summary_table(df, output_dir=output_dir / experiment)

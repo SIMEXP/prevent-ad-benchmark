@@ -1,8 +1,10 @@
 # cleaned up for using published weights for direct transfer with CLS token
 
+import json
 from transformers import ViTMAEConfig
 from datasets import load_from_disk
 import numpy as np
+import pandas as pd
 import torch
 
 from tqdm import tqdm
@@ -17,12 +19,66 @@ except ImportError:
     print('not using flash attention')
 import argparse
 
-import numpy as np
+from preventad_benchmark.dataset.utils import compute_normalization_params
+from preventad_benchmark.evaluation import run_test_experiment
+from preventad_benchmark.evaluation.targets import load_prediction_targets
 
 from preventad_benchmark.config import BRAINLM_MODEL_ARGUMENTS, BRAINLM_TIMESERIES_LENGTH
 
 timeseries_length = BRAINLM_TIMESERIES_LENGTH
 model_arguments = BRAINLM_MODEL_ARGUMENTS
+
+
+def _extract_embeddings(dataset, model, device, image_column_name, norm_params=None):
+    """Extract embeddings from a dataset using the BrainLM model.
+
+    Returns dict with cls_token, cls_embedding, mean_embedding, max_embedding arrays.
+    """
+    if norm_params is None and "raw_timeseries" in dataset.column_names:
+        norm_params = compute_normalization_params(dataset)
+
+    timeseires_to_images_kargs = {
+        "image_column_name": image_column_name,
+        "timeseries_length": timeseries_length,
+        "max_val_to_scale": None,
+        "norm_params": norm_params,
+    }
+
+    def transform_func(batch):
+        return timeseires_to_images(batch, **timeseires_to_images_kargs)
+
+    dataset.set_transform(transform_func)
+
+    list_cls_tokens = []
+    list_attn_cls_tokens = []
+    all_embeddings = []
+    with torch.no_grad():
+        for recording in tqdm(dataset, desc="Getting CLS tokens"):
+            pixel_values = recording["pixel_values"].unsqueeze(0).half().to(device)
+            pixel_values = padding_timeseries_For_vitmae(pixel_values, model.config.image_size)
+
+            encoder_output = model.vit(
+                pixel_values=pixel_values,
+                output_hidden_states=True
+            )
+            cls_token = encoder_output.last_hidden_state[:,0,:].detach().cpu().numpy()
+            embedding = encoder_output.last_hidden_state[:,1:,:].detach().cpu().numpy()
+
+            attn_cls_token = get_attention_cls_token(encoder_output.attentions)
+            list_attn_cls_tokens.append(attn_cls_token)
+            list_cls_tokens.append(cls_token)
+            all_embeddings.append(embedding)
+
+    cls_embeds = np.concatenate(list_cls_tokens, axis=0)
+    all_mean_embeddings = np.concatenate([e.mean(axis=1) for e in all_embeddings], axis=0)
+    all_maxpool_embeddings = np.concatenate([e.max(axis=1) for e in all_embeddings], axis=0)
+
+    return dict(
+        cls_token=np.concatenate(list_attn_cls_tokens, axis=0).squeeze(),
+        cls_embedding=cls_embeds,
+        mean_embedding=all_mean_embeddings,
+        max_embedding=all_maxpool_embeddings,
+    )
 
 
 def main():
@@ -42,8 +98,14 @@ def main():
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="outputs/embeddings/brainlm",
-        help="Output path for Arrow dataset with embeddings (default: outputs/embeddings/brainlm)",
+        default="outputs/downstreams/brainlm",
+        help="Output directory for downstream experiment results (default: outputs/downstreams/brainlm)",
+    )
+    parser.add_argument(
+        "--output-prefix",
+        type=str,
+        default="brainlm",
+        help="Prefix for output files (default: brainlm)",
     )
     parser.add_argument(
         "--image-column-name",
@@ -51,31 +113,22 @@ def main():
         help="Column name for the image data (default: raw_timeseries)",
     )
     parser.add_argument(
-        "--norm-params",
-        type=str,
-        default=None,
-        help="Path to .norm_params.npz file for dataset-level normalization (required for gigaconnectome raw_timeseries)",
+        "--split-index",
+        type=int,
+        default=0,
+        help="Index of the train/test split (default: 0)",
     )
     args = parser.parse_args()
     inputs_path = args.dataset
     model_path = args.model_path
-    outputs_path = args.output_dir
+    output_dir = Path(args.output_dir)
     image_column_name = args.image_column_name
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    norm_params = None
-    if args.norm_params:
-        norm_params = dict(np.load(args.norm_params))
-
-    timeseires_to_images_kargs = {
-        "image_column_name": image_column_name,
-        "timeseries_length": timeseries_length, # this is for developmental dataset, full length
-        "max_val_to_scale": None,  # max_val_to_scale = 5.6430855  # this is weird.
-        "norm_params": norm_params,
-    }
-
-    def transform_func(batch):
-        return timeseires_to_images(batch, **timeseires_to_images_kargs)
+    output_path = output_dir / f"{args.output_prefix}.split{args.split_index}.tsv"
+    if output_path.exists():
+        print(f"{output_path} exists, skip")
+        return
 
     # load model
     config = ViTMAEConfig.from_pretrained(model_path)
@@ -90,58 +143,53 @@ def main():
     # multiple train modes (auto-encoder, causal attention, predict last, etc)
     model.config.train_mode = "auto_encode"
 
-    train_ds = load_from_disk(inputs_path)
-    train_ds.set_transform(transform_func)
+    fmri_ds = load_from_disk(inputs_path)
+    split_path = Path("data/processed/train_test_split.json")
+    with open(split_path) as f:
+        split_ids = json.load(f)
 
-    list_subject_id = []
-    list_cls_tokens = []
-    list_attn_cls_tokens = []
-    all_embeddings = []
-    # all_index = []
-    with torch.no_grad():
-        for recording in tqdm(train_ds, desc="Getting CLS tokens"):
-            pixel_values = recording["pixel_values"].unsqueeze(0).half().to(device)
-            pixel_values = padding_timeseries_For_vitmae(pixel_values, model.config.image_size)
+    # Filter train set
+    train_ids = set(split_ids[args.split_index]["train"])
+    # BrainLM participant_ids may have extra suffixes (e.g. _space-..._desc-...);
+    # match by checking if any split ID is a prefix of the dataset participant_id
+    train_ds = fmri_ds.filter(lambda x: any(x["participant_id"].startswith(tid) for tid in train_ids))
+    print(f"Training set: {len(train_ds)} samples (from {len(fmri_ds)} total)")
 
-            encoder_output = model.vit(
-                pixel_values=pixel_values,
-                output_hidden_states=True
-            )
+    # Filter test set
+    test_ids = set(split_ids[args.split_index]["test"])
+    test_ds = fmri_ds.filter(lambda x: any(x["participant_id"].startswith(tid) for tid in test_ids))
+    print(f"Test set: {len(test_ds)} samples (from {len(fmri_ds)} total)")
 
-            cls_token = encoder_output.last_hidden_state[:,0,:].detach().cpu().numpy()  # torch.Size([1, 256])? (I got 1, 241)
-            embedding = encoder_output.last_hidden_state[:,1:,:].detach().cpu().numpy()
+    # Compute normalization params from training set
+    norm_params = None
+    if "raw_timeseries" in fmri_ds.column_names:
+        norm_params = compute_normalization_params(train_ds)
 
-            attn_cls_token = get_attention_cls_token(encoder_output.attentions)
-            list_subject_id.append(recording['participant_id'])
-            list_attn_cls_tokens.append(attn_cls_token)
-            list_cls_tokens.append(cls_token)
-            all_embeddings.append(embedding)
+    # Extract embeddings for train and test
+    print("\nExtracting train embeddings...")
+    train_features = _extract_embeddings(train_ds, model, device, image_column_name, norm_params)
+    train_labels = load_prediction_targets(participant_ids=train_ids)
 
-    # pooling or
-    cls_embeds = np.concatenate(list_cls_tokens, axis=0)
-    all_mean_embeddings = [e.mean(axis=1) for e in all_embeddings]
-    all_mean_embeddings = np.concatenate(all_mean_embeddings, axis=0)
-    all_maxpool_embeddings = [e.max(axis=1) for e in all_embeddings]
-    all_maxpool_embeddings = np.concatenate(all_maxpool_embeddings, axis=0)
+    print("\nExtracting test embeddings...")
+    test_features = _extract_embeddings(test_ds, model, device, image_column_name, norm_params)
+    test_labels = load_prediction_targets(participant_ids=test_ids)
 
-    # save all padded recording
-    all_recordings = []
-    for _, batch in enumerate(tqdm(train_ds)):
-        signal = batch["pixel_values"]  # (1, 3, num_parcel, timeseries_length)
-        recording = signal.flatten(start_dim=1)
-        recording = np.array(recording, dtype=np.float32)
-        all_recordings.append(recording)
+    test_split_results = []
+    for feat_name in train_features:
+        print(f"Running experiments with {feat_name} features, shape: {train_features[feat_name].shape}")
+        feat_results = run_test_experiment(
+            train_features[feat_name], train_labels,
+            test_features[feat_name], test_labels,
+            feat_name,
+        )
+        feat_results["Features"] = feat_name
+        test_split_results.append(feat_results)
 
-    Path(outputs_path).parent.mkdir(parents=True, exist_ok=True)
-    np.savez(
-        outputs_path,
-        participant_ids=list_subject_id,
-        cls_token=np.concatenate(list_attn_cls_tokens, axis=0),
-        cls_embedding=cls_embeds,
-        mean_embedding=all_mean_embeddings,
-        max_embedding=all_maxpool_embeddings,
-    )
-    print(f"Saved embeddings to {outputs_path}")
+    test_split_results = pd.concat(test_split_results).reset_index(drop=True)
+    test_split_results['split'] = args.split_index
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    test_split_results.to_csv(output_path, sep='\t')
 
 
 if __name__ == "__main__":

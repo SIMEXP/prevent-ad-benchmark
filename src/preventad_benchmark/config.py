@@ -142,6 +142,6 @@ BRAINHARMONIX_TARGET_NUM_PATCHES = 18
 # Downstream evaluation configuration
 # =============================================================================
 
-EVALUATION_N_SPLITS = 100
+EVALUATION_N_SPLITS = 20
 EVALUATION_PCA_COMPONENTS = 75
 EVALUATION_TARGETS = ["sex", "age", "splifhalfage", "progess2mci", "centiloid", "abSUVR", "abSUVRbin", "centiloidbin"]

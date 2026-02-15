@@ -42,6 +42,7 @@ from preventad_benchmark.config import (
     BRAINHARMONIX_CHECKPOINTS,
     BRAINHARMONIX_POS_EMBED_PATHS,
 )
+from datasets import load_from_disk
 from preventad_benchmark.models.brainharmonix.loaders import load_all_models
 from preventad_benchmark.models.brainharmonix.datasets import BrainHarmonixDataset, FineTuneDataset
 from preventad_benchmark.models.brainharmonix.models import (
@@ -195,6 +196,13 @@ Examples:
         help="Device (default: cuda if available)",
     )
 
+    parser.add_argument(
+        "--split-index",
+        type=int,
+        default=0,
+        help="Index of the train/test split to use for finetuning (default: 0)",
+    )
+
     args = parser.parse_args()
 
     # Validate arguments
@@ -211,14 +219,24 @@ Examples:
     if args.target:
         print(f"Target: {args.target}")
 
-    # Load base dataset
+    # Load arrow dataset and filter to training set
     print("\nLoading dataset...")
-    base_dataset = BrainHarmonixDataset(str(args.dataset))
+    arrow_ds = load_from_disk(str(args.dataset))
+
+    split_path = Path("data/processed/train_test_split.json")
+    with open(split_path) as f:
+        split_ids = json.load(f)
+    train_ids = set(split_ids[args.split_index]["train"])
+    train_ds = arrow_ds.filter(lambda x: x["participant_id"] in train_ids)
+    print(f"Training set: {len(train_ds)} samples (from {len(arrow_ds)} total)")
+
+    # Norm params computed from training set only (inside BrainHarmonixDataset)
+    base_dataset = BrainHarmonixDataset(train_ds)
 
     # Create dataset
     dataset = FineTuneDataset(base_dataset, args.target, args.task)
 
-    # Split into train/val
+    # Split into train/val within the training set
     val_size = int(len(dataset) * args.val_split)
     train_size = len(dataset) - val_size
     train_dataset, val_dataset = random_split(
@@ -252,10 +270,6 @@ Examples:
             t1_encoder=t1_encoder,
             harmonizer=harmonizer,
         )
-        # Use lower learning rate for self-supervised
-        if args.lr == 1e-4:  # Default was not changed
-            args.lr = 1e-5
-            print(f"Using lower learning rate for self-supervised: {args.lr}")
     else:
         model = BrainHarmonixSupervisedModel(
             fmri_encoder=fmri_encoder,

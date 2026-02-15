@@ -8,8 +8,9 @@ import numpy as np
 import pandas as pd
 
 from preventad_benchmark.config import EVALUATION_TARGETS, TIMESERIES_LENGTH, EVALUATION_PCA_COMPONENTS
-from preventad_benchmark.evaluation.pipelines import linear_pipeline, svm_pipeline
+from preventad_benchmark.evaluation.pipelines import linear_pipeline, svm_pipeline, svm_fit_score, linear_fit_score
 from preventad_benchmark.evaluation.targets import load_prediction_targets
+from preventad_benchmark.plotting.utils import TARGET_NAMES
 
 
 def baseline_experiment(input_dir, output_dir):
@@ -53,48 +54,6 @@ def baseline_experiment(input_dir, output_dir):
     run_downstream_experiment(
         fc, labels, output_dir, 'connectivity',
     )
-
-
-def brainharmonix_experiment(
-    emb_path: str = None,
-    output_dir: str = 'outputs/downstreams/brainharmonix/',
-
-) -> None:
-    """Run downstream experiments with BrainHarmonix features."""
-    features = {}
-    emb = np.load(emb_path, allow_pickle=True)
-    features['harmonizer_cls'] = emb["harmonizer"][:, 0, :]
-    features['harmonizer_latent_mean'] = emb["harmonizer"][:, 1:, :].mean(axis=1)
-    features['t1_mean'] = emb['t1'].mean(axis=1)
-    features['fmri_mean'] = emb['fmri'].mean(axis=1)
-
-    labels = load_prediction_targets(participant_ids=emb['participant_ids'].tolist())
-
-    # Embeddings are 768-dim -> no PCA
-    for feat_name, feat_data in features.items():
-        print(f"Running experiments with {feat_name} features, shape: {feat_data.shape}")
-        run_downstream_experiment(feat_data, labels, output_dir, feat_name)
-
-
-def brainlm_experiment(emb_path, output_dir):
-    """Run downstream experiments with BrainLM features.
-
-    Args:
-        emb_path: Path to .npz file with BrainLM embeddings.
-        output_dir: Output directory for experiment results.
-    """
-    emb = np.load(emb_path, allow_pickle=True)
-    features = {
-        'cls_token': emb['cls_token'].squeeze(),
-        'cls_embedding': emb['cls_embedding'],
-        'mean_embedding': emb['mean_embedding'],
-        'max_embedding': emb['max_embedding'],
-    }
-    labels = load_prediction_targets(participant_ids=emb['participant_ids'].tolist())
-
-    for feat_name, feat_data in features.items():
-        print(f"Running experiments with {feat_name} features, shape: {feat_data.shape}")
-        run_downstream_experiment(feat_data, labels, output_dir, feat_name)
 
 
 def run_downstream_experiment(features, labels, output_dir, prefix, pca_components=None):
@@ -144,3 +103,58 @@ def run_downstream_experiment(features, labels, output_dir, prefix, pca_componen
             print(f"  Running Linear for {prefix} -> {target_name}...")
             linear_scores = linear_pipeline(X_valid, y_valid, pca_components=pca_components)
             pd.DataFrame(linear_scores).to_csv(linear_path, sep="\t")
+
+
+def run_test_experiment(train_features, train_labels, test_features, test_labels, prefix, pca_components=None):
+    """Fit SVM + linear on test-set embeddings and score.
+
+    Args:
+        features: (N, D) array of feature vectors.
+        labels: dict mapping target name -> label array (from load_prediction_targets).
+        output_dir: Directory to write result TSVs.
+        prefix: Feature name prefix for output filenames.
+        pca_components: Number of PCA components. None skips PCA.
+    """
+
+    train_features = np.array(train_features)
+    test_features = np.array(test_features)
+
+    all_results = []
+    for target_name in EVALUATION_TARGETS:
+        y_train = np.array(train_labels[target_name])
+        # Filter out samples with NaN/None labels
+        valid_mask = np.array([
+            v is not None and v != 'nan' and not (isinstance(v, float) and np.isnan(v))
+            for v in y_train
+        ])
+
+        if not valid_mask.any():
+            print(f"  Skipping {target_name}: all labels are NaN")
+            continue
+        x_train_valid = train_features[valid_mask]
+        y_train_valid = y_train[valid_mask].tolist()
+
+        y_test = np.array(test_labels[target_name])
+        # Filter out samples with NaN/None labels
+        valid_mask = np.array([
+            v is not None and v != 'nan' and not (isinstance(v, float) and np.isnan(v))
+            for v in y_test
+        ])
+
+        if not valid_mask.any():
+            print(f"  Skipping {target_name}: all labels are NaN")
+            continue
+        x_test_valid = test_features[valid_mask]
+        y_test_valid = y_test[valid_mask].tolist()
+
+        # SVM
+        print(f"  Running {prefix} -> {target_name}...")
+        svm_scores = svm_fit_score(x_train_valid, y_train_valid, x_test_valid, y_test_valid, pca_components=pca_components)
+        linear_scores = linear_fit_score(x_train_valid, y_train_valid, x_test_valid, y_test_valid, pca_components=pca_components)
+        results = pd.DataFrame([svm_scores, linear_scores])
+        results["Classifier"] = ["SVM", "Linear"]
+        results["Target"] = TARGET_NAMES[target_name]
+        all_results.append(results)
+    return pd.concat(all_results).reset_index(drop=True)
+
+

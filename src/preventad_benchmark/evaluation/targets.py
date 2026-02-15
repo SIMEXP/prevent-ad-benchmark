@@ -25,7 +25,7 @@ def load_prediction_targets(features_path=None, participant_ids=None, phenotype_
         phenotype_path: Path to subject-level targets TSV. Defaults to PHENOTYPE_TARGETS.
 
     Returns:
-        dict with keys 'sex', 'age', 'splifhalfage', 'progess2mci', 'aps'.
+        dict with keys.
     """
     if features_path is None and participant_ids is None:
         raise ValueError("Must provide either features_path or participant_ids to load targets.")
