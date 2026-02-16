@@ -166,7 +166,7 @@ def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, dry_r
 def evaluate(c, model_size="650M", preprocessing="all", split_index=0):
     """Run pretrained BrainLM prediction pipeline (no fine-tuning).
 
-    Direct transfer evaluation - uses published model weights without
+    Feature extraction evaluation - uses published model weights without
     any adaptation to the target dataset.
 
     Example:

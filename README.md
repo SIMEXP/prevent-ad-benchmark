@@ -7,7 +7,7 @@ Benchmarking neuroimaging foundation models (BrainLM, BrainHarmonix) on the PREV
 This project evaluates whether pretrained foundation models for fMRI produce useful representations for predicting clinically relevant outcomes. Two models are compared against classical baselines across 8 prediction targets: sex, age, split-half age, MCI progression, centiloid, centiloid (binarized), amyloid SUVR, and amyloid SUVR (binarized).
 
 Each model is tested in two transfer modes:
-- **Direct transfer**: run prediction pipeline using pretrained weights with no adaptation
+- **Feature extraction**: extract embeddings from frozen pretrained weights and train downstream classifiers
 - **Fine-tuned**: fine-tune embedding layers on the training set, then run prediction pipeline
 
 ## Analysis Pipeline

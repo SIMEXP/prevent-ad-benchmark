@@ -1,4 +1,4 @@
-# cleaned up for using published weights for direct transfer with CLS token
+# cleaned up for using published weights for feature extraction with CLS token
 import argparse
 import json
 from pathlib import Path
