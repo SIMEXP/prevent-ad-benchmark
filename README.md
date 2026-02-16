@@ -17,7 +17,7 @@ Data Preparation  :arrow_right:  Evaluation  :arrow_right:  Reports
    (prepare)        (baseline/brainlm/brainharmonix)   (reports)
 ```
 
-### Stage 1 — Data Preparation (`inv prepare.*`)
+### Stage 1: Data Preparation (`inv prepare.*`)
 
 | Task | Description |
 |------|-------------|
@@ -28,7 +28,7 @@ Data Preparation  :arrow_right:  Evaluation  :arrow_right:  Reports
 | `prepare.timeseries` | Extract timeseries and save as Arrow datasets |
 | `prepare.split` | Create 20 stratified train/test splits (sex + MCI progression) |
 
-### Stage 2 — Evaluation (`inv baseline.*` / `inv brainlm.*` / `inv brainharmonix.*`)
+### Stage 2: Evaluation (`inv baseline.*` / `inv brainlm.*` / `inv brainharmonix.*`)
 
 **Baseline** (`inv baseline.*`): classical features evaluated with 20-fold CV
 
@@ -57,11 +57,11 @@ Data Preparation  :arrow_right:  Evaluation  :arrow_right:  Reports
 ### Evaluation Design
 
 ```
-Arrow Dataset ──► Feature Extraction ──► Classifiers ──► Scores ──► Summary Tables
+Arrow Dataset :arrow_right: Feature Extraction :arrow_right: Classifiers :arrow_right: Scores :arrow_right: Summary Tables
           (Timeseries / FC / embeddings)  (SVM, Linear)   (per split)  (mean + 95% CI)
 ```
 
-**Prediction targets** — 8 targets spanning demographics, cognition, and amyloid pathology:
+**Prediction targets**: 8 targets spanning demographics, cognition, and amyloid pathology:
 
 | Type | Targets |
 |------|---------|
@@ -70,20 +70,20 @@ Arrow Dataset ──► Feature Extraction ──► Classifiers ──► Score
 
 Classification vs regression is auto-detected from label type (string :arrow_right: classification, numeric :arrow_right: regression).
 
-**Baseline evaluation** — classical features extracted directly from the Arrow dataset:
+**Baseline evaluation**: classical features extracted directly from the Arrow dataset:
 - *Timeseries*: flattened ROI timeseries reduced to 75 PCA components
 - *Functional connectivity*: correlation-based connectivity vectors (vectorized, diagonal discarded)
 - Evaluated with 20-fold stratified shuffle cross-validation using SVM, Linear, and Dummy classifiers
 
-**Foundation model evaluation** — learned embeddings from pretrained or fine-tuned models:
+**Foundation model evaluation**: learned embeddings from pretrained or fine-tuned models:
 - *BrainLM*: CLS Token, CLS Embedding, Mean Embedding, Max Embedding
 - *BrainHarmonix*: fMRI (mean), T1 (mean), Harmonizer (CLS), Harmonizer (latent)
 - Evaluated on a precomputed train/test split (one per fold) using SVM and Linear classifiers
 
 **Classifiers:**
-- **SVM** — `SVC` (balanced class weights) / `SVR`, with `RobustScaler`
-- **Linear** — `LogisticRegression` / `LinearRegression`, with `RobustScaler`
-- **Dummy** — `most_frequent` / `mean` strategy as chance-level reference (baseline only)
+- **SVM**: `SVC` (balanced class weights) / `SVR`, with `RobustScaler`
+- **Linear**: `LogisticRegression` / `LinearRegression`, with `RobustScaler`
+- **Dummy**: `most_frequent` / `mean` strategy as chance-level reference (baseline only)
 
 **Metrics:**
 
@@ -93,7 +93,7 @@ Classification vs regression is auto-detected from label type (string :arrow_rig
 
 Results are reported as mean with 95% confidence interval (2.5th–97.5th percentile) across splits.
 
-### Stage 3 — Reports (`inv reports.*`)
+### Stage 3: Reports (`inv reports.*`)
 
 | Task | Description |
 |------|-------------|
