@@ -13,7 +13,7 @@ Each model is tested in two transfer modes:
 ## Analysis Pipeline
 
 ```
-Data Preparation  :arrow_right:  Evaluation  :arrow_right:  Reports
+Data Preparation  ->  Evaluation  ->  Reports
    (prepare)        (baseline/brainlm/brainharmonix)   (reports)
 ```
 
@@ -57,7 +57,7 @@ Data Preparation  :arrow_right:  Evaluation  :arrow_right:  Reports
 ### Evaluation Design
 
 ```
-Arrow Dataset :arrow_right: Feature Extraction :arrow_right: Classifiers :arrow_right: Scores :arrow_right: Summary Tables
+Arrow Dataset -> Feature Extraction -> Classifiers -> Scores -> Summary Tables
           (Timeseries / FC / embeddings)  (SVM, Linear)   (per split)  (mean + 95% CI)
 ```
 
@@ -68,7 +68,7 @@ Arrow Dataset :arrow_right: Feature Extraction :arrow_right: Classifiers :arrow_
 | Classification | sex, split-half age, MCI progression, centiloid > 20, amyloid SUVR > 1.26 |
 | Regression | age, centiloid, amyloid SUVR |
 
-Classification vs regression is auto-detected from label type (string :arrow_right: classification, numeric :arrow_right: regression).
+Classification vs regression is auto-detected from label type (string -> classification, numeric -> regression).
 
 **Baseline evaluation**: classical features extracted directly from the Arrow dataset:
 - *Timeseries*: flattened ROI timeseries reduced to 75 PCA components
