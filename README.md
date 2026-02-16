@@ -2,6 +2,8 @@
 
 Benchmarking neuroimaging foundation models (BrainLM, BrainHarmonix) on the PREVENT-AD dataset for downstream prediction of clinical and biological targets.
 
+For fMRI data processing code, please see [SIMEXP/prevent-ad_dr8.1internal](https://github.com/SIMEXP/prevent-ad_dr8.1internal/)
+
 ## Overview
 
 This project evaluates whether pretrained foundation models for fMRI produce useful representations for predicting clinically relevant outcomes. Two models are compared against classical baselines across 8 prediction targets: sex, age, split-half age, MCI progression, centiloid, centiloid (binarized), amyloid SUVR, and amyloid SUVR (binarized).
@@ -11,7 +13,6 @@ Each model is tested in two transfer modes:
 - **Fine-tuned**: fine-tune embedding layers on the training set, then run prediction pipeline
 
 ## Analysis Pipeline
-
 ```
 Data Preparation  ->  Evaluation  ->  Reports
    (prepare)        (baseline/brainlm/brainharmonix)   (reports)
@@ -137,7 +138,12 @@ git clone git@github.com:SIMEXP/prevent-ad-benchmark.git
 cd prevent-ad-benchmark
 ```
 
-The BrainLM submodule is for record keeping. To pull it:
+### Pulling submodules (optional)
+
+The BrainLM and BrainHarmonix submodules are for record keeping. 
+The installation (when needed) is managed by the general project setup.
+
+To pull it:
 
 ```bash
 git submodule update --init --recursive
