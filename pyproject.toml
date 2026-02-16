@@ -38,9 +38,6 @@ preventad-extract-brainlm = "preventad_benchmark.cli.extract_brainlm:main"
 preventad-extract-brainharmonix = "preventad_benchmark.cli.extract_brainharmonix:main"
 preventad-finetune-brainlm = "preventad_benchmark.cli.finetune_brainlm:main"
 preventad-finetune-brainharmonix = "preventad_benchmark.cli.finetune_brainharmonix:main"
-preventad-downstreams = "preventad_benchmark.cli.downstreams:main"
-preventad-baseline = "preventad_benchmark.cli.create_baseline:main"
-preventad-plot = "preventad_benchmark.cli.plot_downstreams:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/preventad_benchmark"]

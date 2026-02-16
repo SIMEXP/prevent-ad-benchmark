@@ -7,6 +7,8 @@ from pathlib import Path
 
 import invoke
 
+from .slurm import load_slurm_config, submit_job_array
+
 
 # Default paths
 DEFAULT_DATA_DIR = Path("data/processed")
@@ -14,95 +16,144 @@ DEFAULT_MODEL_DIR = Path("models")
 DEFAULT_OUTPUT_DIR = Path("outputs")
 
 # Input Arrow datasets (matching prepare.py output naming)
-BRAINLM_DATASET = DEFAULT_DATA_DIR / "dataset-preventad.fmri.NoZscore.brainlm.a424.arrow"
-BRAINLM_DATASET_Z = DEFAULT_DATA_DIR / "dataset-preventad.fmri.zscored.brainlm.a424.arrow"
-GIGACONNECTOME_DATASET = DEFAULT_DATA_DIR / "dataset-preventad.fmri.NoZscore.gigaconnectome.a424.arrow"
-GIGACONNECTOME_NORM_PARAMS = DEFAULT_DATA_DIR / "dataset-preventad.fmri.NoZscore.gigaconnectome.a424.norm_params.npz"
-GIGACONNECTOME_DATASET_Z = DEFAULT_DATA_DIR / "dataset-preventad.fmri.zscored.gigaconnectome.a424.arrow"
-GIGACONNECTOME_NORM_PARAMS_Z = DEFAULT_DATA_DIR / "dataset-preventad.fmri.zscored.gigaconnectome.a424.norm_params.npz"
+EXTRACTOION_PARAM = {
+    "brainlm":{
+        "input_path": DEFAULT_DATA_DIR / "dataset-preventad.fmri.NoZscore.brainlm.a424.arrow",
+        "image_column": "Subtract_Mean_Divide_Global_STD_Normalized_Recording",
+        "output_suffix": "nozscore_brainlm",
+        "normalize": False,  # precomuted and integrated
+    },
+    "brainlm_z":{
+        "input_path": DEFAULT_DATA_DIR / "dataset-preventad.fmri.zscored.brainlm.a424.arrow",
+        "image_column": "Subtract_Mean_Divide_Global_STD_Normalized_Recording",
+        "output_suffix": "zscore_brainlm",
+        "normalize": False,  # precomuted and integrated
+    },
+    "gigaconnectome_z":{
+        "input_path": DEFAULT_DATA_DIR / "dataset-preventad.fmri.zscored.gigaconnectome.a424.arrow",
+        "image_column": "raw_timeseries",
+        "output_suffix": "zscore_gigaconnectome",
+        "normalize": False,   # everything is already centred at 0
+    },
+    "gigaconnectome":{
+        "input_path": DEFAULT_DATA_DIR / "dataset-preventad.fmri.NoZscore.gigaconnectome.a424.arrow",
+        "image_column": "raw_timeseries",
+        "output_suffix": "nozscore_gigaconnectome",
+        "normalize": True,
+    },
+}
 
 
 @invoke.task(
     help={
-        "input-path": "Path to Arrow dataset (default: BrainLM preprocessed)",
-        "output-path": "Output directory for finetuned model",
+        "preprocessing": "Preprocessing type: brainlm, brainlm_z, gigaconnectome, or gigaconnectome_z (default: brainlm)",
         "model-params": "Model size: 111M or 650M (default: 650M)",
-        "image-column": "Column name for timeseries data",
         "split-index": "Index of the train/test split (default: 0)",
     }
 )
-def finetune_brainlm(
+def finetune(
     c,
-    input_path=None,
-    output_path=None,
+    preprocessing="brainlm",
     model_params="650M",
-    image_column="Subtract_Mean_Divide_Global_STD_Normalized_Recording",
     split_index=0,
 ):
-    """Fine-tune BrainLM ViT-MAE model on BrainLM-preprocessed PreventAD data.
+    """Fine-tune BrainLM ViT-MAE model and extract finetuned features.
 
     Freezes all parameters except patch_embed and cls_token layers.
     Trains using masked autoencoder reconstruction objective.
 
     Example:
-        inv brainlm.finetune-brainlm
-        inv brainlm.finetune-brainlm --model-params=650M
+        inv brainlm.finetune
+        inv brainlm.finetune --preprocessing=gigaconnectome --model-params=650M
     """
-    input_path = input_path or str(BRAINLM_DATASET)
-    output_path = output_path or str(DEFAULT_OUTPUT_DIR / f"finetune/brainlm/nozscore.brainlm.{model_params}.selfsupervised")
+    cfg = EXTRACTOION_PARAM[preprocessing]
+    input_path = str(cfg["input_path"])
+    image_column = cfg["image_column"]
+    output_suffix = cfg["output_suffix"]
+    output_path = str(DEFAULT_OUTPUT_DIR / f"finetune/brainlm/{output_suffix}.{model_params}.selfsupervised/{split_index}")
 
-    cmd = f"preventad-finetune-brainlm --dataset {input_path} --output-dir {output_path} --image-column-name {image_column} --model-params {model_params} --split-index {split_index}"
+    normalize_flag = " --normalize" if cfg.get("normalize") else ""
+    cmd = (
+        f"preventad-finetune-brainlm --dataset {input_path} "
+        f"--output-dir {output_path} --image-column-name {image_column} "
+        f"--model-params {model_params} --split-index {split_index}"
+        f"{normalize_flag}"
+    )
     print(f"Running: {cmd}")
     c.run(cmd)
 
     # Extract features from finetuned model
     extract_dir = str(DEFAULT_OUTPUT_DIR / "downstreams/brainlm")
-    extract_prefix = f"nozscore_brainlm.brainlm{model_params}.finetuned"
-    extract_cmd = f"preventad-extract-brainlm --dataset {input_path} --model-path {output_path} --output-dir {extract_dir} --output-prefix {extract_prefix} --image-column-name {image_column} --split-index {split_index}"
+    extract_prefix = f"{output_suffix}.brainlm{model_params}.finetuned"
+    extract_cmd = (
+        f"preventad-extract-brainlm --dataset {input_path} "
+        f"--model-path {output_path} --output-dir {extract_dir} "
+        f"--output-prefix {extract_prefix} --image-column-name {image_column} "
+        f"--split-index {split_index}{normalize_flag}"
+    )
     print(f"Running: {extract_cmd}")
     c.run(extract_cmd)
 
 
 @invoke.task(
     help={
-        "input-path": "Path to Arrow dataset (default: GigaConnectome preprocessed)",
-        "output-path": "Output directory for finetuned model",
-        "model-params": "Model size: 111M or 650M (default: 650M)",
-        "image-column": "Column name for timeseries data",
-        "split-index": "Index of the train/test split (default: 0)",
+        "model-size": "Model size: 111M, 650M, or all (default: all)",
+        "preprocessing": "Preprocessing type: brainlm, brainlm_z, gigaconnectome, gigaconnectome_z, or all (default: all)",
+        "n-splits": "Number of train/test splits (default: 20)",
+        "dry-run": "Print generated scripts without submitting (default: False)",
     }
 )
-def finetune_brainlm_gigaconnectome(
-    c,
-    input_path=None,
-    output_path=None,
-    model_params="650M",
-    image_column="raw_timeseries",
-    split_index=0,
-):
-    """Fine-tune BrainLM on GigaConnectome-preprocessed data.
+def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, dry_run=False):
+    """Submit SLURM job arrays for BrainLM fine-tuning + finetuned feature extraction.
 
-    Uses raw timeseries from GigaConnectome pipeline with dataset-level normalization.
+    Each array task fine-tunes BrainLM on one train/test split,
+    then extracts embeddings from the finetuned model.
 
     Example:
-        inv brainlm.finetune-brainlm-gigaconnectome
-        inv brainlm.finetune-brainlm-gigaconnectome --model-params=650M
+        inv brainlm.submit-finetune
+        inv brainlm.submit-finetune --model-size=650M --preprocessing=brainlm
+        inv brainlm.submit-finetune --dry-run
     """
-    input_path = input_path or str(GIGACONNECTOME_DATASET)
-    norm_params = str(GIGACONNECTOME_NORM_PARAMS)
-    output_path = output_path or str(DEFAULT_OUTPUT_DIR / f"finetune/brainlm/zscore.gigaconnectome.{model_params}.selfsupervised")
+    slurm_params = load_slurm_config("finetune_brainlm")
+    array_range = f"0-{n_splits - 1}"
 
-    cmd = f"preventad-finetune-brainlm --dataset {input_path} --output-dir {output_path} --image-column-name {image_column} --model-params {model_params} --norm-params {norm_params} --split-index {split_index}"
-    print(f"Running: {cmd}")
-    c.run(cmd)
+    sizes = ["111M", "650M"] if model_size == "all" else [model_size]
+    preps = ["brainlm", "brainlm_z", "gigaconnectome", "gigaconnectome_z"] if preprocessing == "all" else [preprocessing]
 
-    # Extract features from finetuned model using training-set norm_params
-    train_norm_params = str(Path(output_path) / "train_norm_params.npz")
     extract_dir = str(DEFAULT_OUTPUT_DIR / "downstreams/brainlm")
-    extract_prefix = f"zscore_gigaconnectome.brainlm{model_params}.finetuned"
-    extract_cmd = f"preventad-extract-brainlm --dataset {input_path} --model-path {output_path} --output-dir {extract_dir} --output-prefix {extract_prefix} --image-column-name {image_column} --norm-params {train_norm_params} --split-index {split_index}"
-    print(f"Running: {extract_cmd}")
-    c.run(extract_cmd)
+
+    for size in sizes:
+        for prep in preps:
+            cfg = EXTRACTOION_PARAM[prep]
+            input_path = str(cfg["input_path"])
+            output_suffix = cfg["output_suffix"]
+            finetune_dir = str(DEFAULT_OUTPUT_DIR / f"finetune/brainlm/{output_suffix}.{size}.selfsupervised")
+            job_name = f"brainlm_finetune_{output_suffix}_{size}".replace(".", "_")
+
+            normalize_flag = " --normalize" if cfg.get("normalize") else ""
+            finetune_cmd = (
+                f"preventad-finetune-brainlm "
+                f"--dataset {input_path} "
+                f"--output-dir {finetune_dir}/split$SLURM_ARRAY_TASK_ID "
+                f"--image-column-name {cfg['image_column']} "
+                f"--model-params {size} "
+                f"--split-index $SLURM_ARRAY_TASK_ID"
+                f"{normalize_flag}"
+            )
+            extract_prefix = f"{output_suffix}.brainlm{size}.finetuned"
+            extract_cmd = (
+                f"preventad-extract-brainlm "
+                f"--dataset {input_path} "
+                f"--model-path {finetune_dir}/split$SLURM_ARRAY_TASK_ID "
+                f"--output-dir {extract_dir} "
+                f"--output-prefix {extract_prefix} "
+                f"--image-column-name {cfg['image_column']} "
+                f"--split-index $SLURM_ARRAY_TASK_ID"
+                f"{normalize_flag}"
+            )
+            command = f"{finetune_cmd} && \\\n{extract_cmd}"
+
+            submit_job_array(job_name, command, array_range, slurm_params, dry_run=dry_run)
 
 
 @invoke.task(
@@ -112,16 +163,16 @@ def finetune_brainlm_gigaconnectome(
         "split-index": "Index of the train/test split (default: 0)",
     }
 )
-def extract_features(c, model_size="650M", preprocessing="all", split_index=0):
-    """Extract features using pre-trained BrainLM models (no fine-tuning).
+def evaluate(c, model_size="650M", preprocessing="all", split_index=0):
+    """Run pretrained BrainLM prediction pipeline (no fine-tuning).
 
     Direct transfer evaluation - uses published model weights without
     any adaptation to the target dataset.
 
     Example:
-        inv brainlm.extract-representation
-        inv brainlm.extract-representation --model-size=650M
-        inv brainlm.extract-representation --preprocessing=gigaconnectome
+        inv brainlm.evaluate
+        inv brainlm.evaluate --model-size=650M
+        inv brainlm.evaluate --preprocessing=gigaconnectome
     """
     # Build list of configurations to run
     sizes = ["111M", "650M"] if model_size == "all" else [model_size]
@@ -129,27 +180,59 @@ def extract_features(c, model_size="650M", preprocessing="all", split_index=0):
 
     for size in sizes:
         for prep in preps:
-            if prep == "brainlm":
-                input_path = str(BRAINLM_DATASET)
-                image_column = "Subtract_Mean_Divide_Global_STD_Normalized_Recording"
-                output_suffix = "nozscore_brainlm"
-            elif prep == "brainlm_z":
-                input_path = str(BRAINLM_DATASET_Z)
-                image_column = "Subtract_Mean_Divide_Global_STD_Normalized_Recording"
-                output_suffix = "zscore_brainlm"
-            elif prep =="gigaconnectome_z":
-                input_path = str(GIGACONNECTOME_DATASET_Z)
-                image_column = "raw_timeseries"
-                output_suffix = "zscore_gigaconnectome"
-            else:
-                input_path = str(GIGACONNECTOME_DATASET)
-                image_column = "raw_timeseries"
-                output_suffix = "nozscore.gigaconnectome"
+            params = EXTRACTOION_PARAM[prep]
 
             model_path = str(DEFAULT_MODEL_DIR / f"brainlm/vitmae_{size}")
             output_dir = str(DEFAULT_OUTPUT_DIR / "downstreams/brainlm")
-            output_prefix = f"{output_suffix}.brainlm{size}"
+            output_prefix = f"{params['output_suffix']}.brainlm{size}"
 
-            cmd = f"preventad-extract-brainlm --dataset {input_path} --model-path {model_path} --output-dir {output_dir} --output-prefix {output_prefix} --image-column-name {image_column} --split-index {split_index}"
+            normalize_flag = " --normalize" if params.get("normalize") else ""
+            cmd = f"preventad-extract-brainlm --dataset {params['input_path']} --model-path {model_path} --output-dir {output_dir} --output-prefix {output_prefix} --image-column-name {params['image_column']} --split-index {split_index}{normalize_flag}"
             print(f"Running: {cmd}")
             c.run(cmd)
+
+
+@invoke.task(
+    help={
+        "model-size": "Model size: 111M, 650M, or all (default: all)",
+        "preprocessing": "Preprocessing type: brainlm, brainlm_z, gigaconnectome, gigaconnectome_z, or all (default: all)",
+        "n-splits": "Number of train/test splits (default: 20)",
+        "dry-run": "Print generated scripts without submitting (default: False)",
+    }
+)
+def submit_evaluate(c, model_size="all", preprocessing="all", n_splits=20, dry_run=False):
+    """Submit SLURM job arrays for pretrained BrainLM prediction (no fine-tuning).
+
+    Example:
+        inv brainlm.submit-evaluate
+        inv brainlm.submit-evaluate --model-size=650M --preprocessing=brainlm
+        inv brainlm.submit-evaluate --dry-run
+    """
+    slurm_params = load_slurm_config("extract_brainlm")
+    array_range = f"4-{n_splits - 1}"
+
+    sizes = ["111M", "650M"] if model_size == "all" else [model_size]
+    preps = ["brainlm", "brainlm_z", "gigaconnectome", "gigaconnectome_z"] if preprocessing == "all" else [preprocessing]
+
+    output_dir = str(DEFAULT_OUTPUT_DIR / "downstreams/brainlm")
+
+    for size in sizes:
+        for prep in preps:
+            cfg = EXTRACTOION_PARAM[prep]
+            model_path = str(DEFAULT_MODEL_DIR / f"brainlm/vitmae_{size}")
+            output_prefix = f"{cfg['output_suffix']}.brainlm{size}"
+            job_name = f"brainlm_extract_{cfg['output_suffix']}_{size}".replace(".", "_")
+
+            normalize_flag = " --normalize" if cfg.get("normalize") else ""
+            command = (
+                f"preventad-extract-brainlm "
+                f"--dataset {cfg['input_path']} "
+                f"--model-path {model_path} "
+                f"--output-dir {output_dir} "
+                f"--output-prefix {output_prefix} "
+                f"--image-column-name {cfg['image_column']} "
+                f"--split-index $SLURM_ARRAY_TASK_ID"
+                f"{normalize_flag}"
+            )
+
+            submit_job_array(job_name, command, array_range, slurm_params, dry_run=dry_run)

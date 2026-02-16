@@ -4,7 +4,9 @@ This module contains invoke tasks for running downstream prediction
 experiments and generating result visualizations.
 """
 from pathlib import Path
-from preventad_benchmark.evaluation import baseline_experiment
+from preventad_benchmark.evaluation import run_baseline_experiment
+from preventad_benchmark.plotting.utils import load_results, make_summary_table
+
 import invoke
 
 
@@ -19,14 +21,14 @@ BRAINLM_BASELINE_FEATURE = Path("data/processed/dataset-preventad.fmri.zscored.g
         "experiment": "Which experiment to run: all, brainharmonix (default: all)",
     }
 )
-def run_baseline(c, experiment="all"):
-    """Generate baseline for downstream prediction experiments.
+def run(c, experiment="all"):
+    """Run baseline downstream prediction experiments.
 
-    Uses SVM and linear models with 100-fold cross-validation.
+    Uses SVM and linear models with cross-validation.
 
     Example:
-        inv evaluation.run-baseline
-        inv evaluation.run-baseline --experiment=brainharmonix
+        inv baseline.run
+        inv baseline.run --experiment=brainharmonix
     """
     if experiment not in ["all", "brainharmonix", "brainlm"]:
         raise NotImplementedError
@@ -44,4 +46,8 @@ def run_baseline(c, experiment="all"):
 
     for i, o in zip(inputs, outputs):
         print(f"Running {o.name}")
-        baseline_experiment(i, o)
+        run_baseline_experiment(i, o)
+
+    # generate reports
+    df = load_results(outputs)
+    make_summary_table(df, output_dir=Path("outputs/reports/baselines"))

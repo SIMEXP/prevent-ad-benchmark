@@ -11,7 +11,7 @@ PROJECT_ROOT = Path(__file__).parents[1]
 
 # Default input directories (absolute paths)
 INPUT_DIRS = {
-    'baseline': [
+    'baselines': [
         PROJECT_ROOT / 'outputs/downstreams/baseline.brainharmonix',
         PROJECT_ROOT / 'outputs/downstreams/baseline.brainlm',
     ],
@@ -25,10 +25,10 @@ INPUT_DIRS = {
 @invoke.task(
     help={
         "experiment": "baseline, brainharmonix, brainlm",
-        "output-dir": "Directory to save summary table (default: outputs/reports/baseline/)",
+        "output-dir": "Directory to save summary table (default: outputs/reports/)",
     }
 )
-def generate_summary(c, experiment='baseline', output_dir=PROJECT_ROOT / 'outputs/reports/'):
+def generate_summary(c, experiment='baselines', output_dir=PROJECT_ROOT / 'outputs/reports/'):
     """Generate summary table from downstream experiment results.
     The default will only include the baseline experiments, but you can specify other directories with the --input-dirs argument.
 

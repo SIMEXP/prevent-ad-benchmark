@@ -8,9 +8,15 @@ Available task namespaces:
 
 Run `invoke --list` to see all available tasks.
 """
+import os
+
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "4")
+os.environ.setdefault("OMP_NUM_THREADS", "4")
+os.environ.setdefault("MKL_NUM_THREADS", "4")
+
 import invoke
 
-from . import brainharmonix, brainlm, evaluation, prepare, reports
+from . import brainharmonix, brainlm, baseline, prepare, reports
 
 
 @invoke.task
@@ -26,7 +32,7 @@ ns = invoke.Collection()
 ns.add_collection(prepare)
 ns.add_collection(brainlm)
 ns.add_collection(brainharmonix)
-ns.add_collection(evaluation)
+ns.add_collection(baseline)
 ns.add_collection(reports)
 
 ns.add_task(clean)

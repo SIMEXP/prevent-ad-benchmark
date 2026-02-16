@@ -20,7 +20,6 @@ import argparse
 import json
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import torch
 from tqdm import tqdm
@@ -37,7 +36,7 @@ from preventad_benchmark.models.brainharmonix.loaders import (
 )
 from preventad_benchmark.models.brainharmonix.utils import BrainHarmonixDataset
 from preventad_benchmark.evaluation.targets import load_prediction_targets
-from preventad_benchmark.evaluation import run_test_experiment
+from preventad_benchmark.evaluation import run_foundation_model_experiment
 
 # Default paths for CLI argument defaults
 DEFAULT_GRADIENT_PATH = str(BRAINHARMONIX_POS_EMBED_PATHS["gradient"])
@@ -102,6 +101,7 @@ def extract_embeddings(
 
 
 def main():
+    """Extract embeddings from BrainHarmonix models"""
     parser = argparse.ArgumentParser(
         description="Extract embeddings from BrainHarmonix models",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -211,17 +211,27 @@ Examples:
     # Load models
     print("\nLoading models...")
     harmonizer = load_harmonizer(args.harmonizer_ckpt, device, mode="inference")
-    fmri_encoder = load_fmri_encoder(args.fmri_ckpt, args.gradient_path, args.geo_harm_path, device, is_finetuned=args.is_finetuned)
-    t1_encoder = load_t1_encoder(args.t1_ckpt, device, mode="inference", is_finetuned=args.is_finetuned)
+    fmri_encoder = load_fmri_encoder(
+        args.fmri_ckpt,
+        args.gradient_path,
+        args.geo_harm_path,
+        device,
+        is_finetuned=args.is_finetuned
+    )
+    t1_encoder = load_t1_encoder(
+        args.t1_ckpt, device, mode="inference", is_finetuned=args.is_finetuned
+    )
 
     print("Models loaded successfully")
 
-    # Load dataset and filter to test set
+    # Load dataset and filter to train/test set
     print("\nLoading dataset...")
     arrow_ds = load_from_disk(str(args.dataset))
     split_path = Path("data/processed/train_test_split.json")
     with open(split_path) as f:
         split_ids = json.load(f)
+
+
     train_ids = set(split_ids[args.split_index]["train"])
     train_ds = arrow_ds.filter(lambda x: x["participant_id"] in train_ids)
     print(f"Training set: {len(train_ds)} samples (from {len(arrow_ds)} total)")
@@ -234,22 +244,22 @@ Examples:
         num_workers=args.num_workers,
         pin_memory=True,
     )
-    participant_ids = [d["participant_id"] for d in train_dataset]
+    train_participant_ids = [d["participant_id"] for d in train_dataset]
     # Extract embeddings
     print("\nExtracting embeddings...")
-    fmri_embeds, t1_embeds, harmonizer_embeds = extract_embeddings(
+    fmri_train_embeds, t1_train_embeds, harmonizer_train_embeds = extract_embeddings(
         train_dataloader, fmri_encoder, t1_encoder, harmonizer, device
     )
 
-    print(f"\nfMRI embeddings shape: {fmri_embeds.shape}")
-    print(f"T1 embeddings shape: {t1_embeds.shape}")
-    print(f"Harmonizer embeddings shape: {harmonizer_embeds.shape}")
+    print(f"\nfMRI embeddings shape: {fmri_train_embeds.shape}")
+    print(f"T1 embeddings shape: {t1_train_embeds.shape}")
+    print(f"Harmonizer embeddings shape: {harmonizer_train_embeds.shape}")
 
     train_emb = dict(
-        fmri=fmri_embeds.numpy(),
-        t1=t1_embeds.numpy(),
-        harmonizer=harmonizer_embeds.numpy(),
-        participant_ids=participant_ids
+        fmri=fmri_train_embeds.numpy(),
+        t1=t1_train_embeds.numpy(),
+        harmonizer=harmonizer_train_embeds.numpy(),
+        participant_ids=train_participant_ids
     )
 
     train_features = {}
@@ -257,7 +267,7 @@ Examples:
     train_features['harmonizer_latent_mean'] = train_emb["harmonizer"][:, 1:, :].mean(axis=1)
     train_features['t1_mean'] = train_emb['t1'].mean(axis=1)
     train_features['fmri_mean'] = train_emb['fmri'].mean(axis=1)
-    train_labels = load_prediction_targets(participant_ids=participant_ids)
+    train_labels = load_prediction_targets(participant_ids=train_participant_ids)
 
     # do the same on test
     test_ids = set(split_ids[args.split_index]["test"])
@@ -272,22 +282,22 @@ Examples:
         num_workers=args.num_workers,
         pin_memory=True,
     )
-    participant_ids = [d["participant_id"] for d in test_dataset]
+    test_participant_ids = [d["participant_id"] for d in test_dataset]
     # Extract embeddings
     print("\nExtracting embeddings...")
-    fmri_embeds, t1_embeds, harmonizer_embeds = extract_embeddings(
+    fmri_test_embeds, t1_test_embeds, harmonizer_test_embeds = extract_embeddings(
         test_dataloader, fmri_encoder, t1_encoder, harmonizer, device
     )
 
-    print(f"\nfMRI embeddings shape: {fmri_embeds.shape}")
-    print(f"T1 embeddings shape: {t1_embeds.shape}")
-    print(f"Harmonizer embeddings shape: {harmonizer_embeds.shape}")
+    print(f"\nfMRI embeddings shape: {fmri_test_embeds.shape}")
+    print(f"T1 embeddings shape: {t1_test_embeds.shape}")
+    print(f"Harmonizer embeddings shape: {harmonizer_test_embeds.shape}")
 
     test_emb = dict(
-        fmri=fmri_embeds.numpy(),
-        t1=t1_embeds.numpy(),
-        harmonizer=harmonizer_embeds.numpy(),
-        participant_ids=participant_ids
+        fmri=fmri_test_embeds.numpy(),
+        t1=t1_test_embeds.numpy(),
+        harmonizer=harmonizer_test_embeds.numpy(),
+        participant_ids=test_participant_ids
     )
 
     test_features = {}
@@ -295,12 +305,14 @@ Examples:
     test_features['harmonizer_latent_mean'] = test_emb["harmonizer"][:, 1:, :].mean(axis=1)
     test_features['t1_mean'] = test_emb['t1'].mean(axis=1)
     test_features['fmri_mean'] = test_emb['fmri'].mean(axis=1)
-    test_labels = load_prediction_targets(participant_ids=participant_ids)
+    test_labels = load_prediction_targets(participant_ids=test_participant_ids)
 
     test_split_results = []
-    for feat_name in test_features.keys():
-        print(f"Running experiments with {feat_name} features, shape: {test_features[feat_name].shape}")
-        feat_results = run_test_experiment(train_features[feat_name], train_labels, test_features[feat_name], test_labels, feat_name)
+    for feat_name, test_feat in test_features.items():
+        print(f"Running experiments with {feat_name}.")
+        feat_results = run_foundation_model_experiment(
+            train_features[feat_name], train_labels, test_feat, test_labels, feat_name
+        )
         feat_results["Features"] = feat_name
         test_split_results.append(feat_results)
 

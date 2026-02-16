@@ -36,7 +36,7 @@ _TARGET_NAMES_REVERSE = {v: k for k, v in TARGET_NAMES.items()}
 def parse_filename(filepath: Path) -> dict:
     """Parse filename to extract feature, target, and classifier type."""
     # Pattern: x-{feature}_y-{target}_{classifier}_prediction.tsv
-    pattern = r'x-(.+)_y-(.+)_(svm|linear)_prediction\.tsv'
+    pattern = r'x-(.+)_y-(.+)_(svm|linear|dummy)_prediction\.tsv'
     match = re.match(pattern, filepath.name)
     if match:
         return {
@@ -101,7 +101,7 @@ def _load_baseline_results(input_dirs: list[Path]) -> pd.DataFrame:
 
 
 def _load_foundation_results(input_dirs: list[Path]) -> pd.DataFrame:
-    """Load foundation model result files ({variation}.{model}.split{N}.tsv format)."""
+    """Load foundation model result files ({variation}.{model}[.{finetuned}].split{N}.tsv format)."""
     records = []
 
     for input_dir in input_dirs:
@@ -114,13 +114,15 @@ def _load_foundation_results(input_dirs: list[Path]) -> pd.DataFrame:
         print(f"  Found {len(files)} split files in {input_dir.name}")
 
         for filepath in files:
-            # Parse filename: {variation}.{foundation_model}.split{N}.tsv
-            match = re.match(r'(.+)\.(\w+)\.split(\d+)\.tsv', filepath.name)
+            # Parse filename: {variation}.{foundation_model}[.{finetuned}].split{N}.tsv
+            match = re.match(r'(\w+)\.(\w+)\.(finetuned\.)?split(\d+)\.tsv', filepath.name)
             if match is None:
                 continue
-            variation = match.group(1)
+            variation = f"{match.group(1)}"
+            if match.group(3):
+                variation = f"{match.group(3)}{match.group(1)}"
             foundation_model = match.group(2)
-            split_idx = int(match.group(3))
+            split_idx = int(match.group(4))
 
             # Determine atlas from model name
             if 'brainharmonix' in foundation_model.lower():
@@ -133,11 +135,14 @@ def _load_foundation_results(input_dirs: list[Path]) -> pd.DataFrame:
             df = pd.read_csv(filepath, sep='\t', index_col=0)
 
             for _, row in df.iterrows():
+
                 # Reverse-lookup Target display name -> target key
                 target_display = row['Target']
                 target_key = _TARGET_NAMES_REVERSE.get(target_display, target_display)
                 feature = row['Features']
                 classifier = row['Classifier'].lower()
+                if "finetuned" in variation and feature in ["t1_mean", "fmri_mean"]:
+                    continue  # the modality specific encoders are not finetuned
 
                 # Determine task type from available columns
                 is_classification = pd.notna(row.get('test_acc'))

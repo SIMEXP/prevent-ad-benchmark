@@ -39,6 +39,11 @@ model_arguments = BRAINLM_MODEL_ARGUMENTS
 
 
 def main():
+    """Fine-tune BrainLM ViT-MAE embedding layers on PreventAD fMRI data.
+
+    Freezes all parameters except patch_embed and cls_token, trains with
+    masked autoencoding on the training split, then saves the fine-tuned model.
+    """
     parser = argparse.ArgumentParser(description="Fine-tune BrainLM ViT-MAE on fMRI data")
     parser.add_argument(
         "--dataset",
@@ -75,6 +80,12 @@ def main():
         default=0,
         help="Index of the train/test split to use for finetuning (default: 0)",
     )
+    parser.add_argument(
+        "--normalize",
+        action="store_true",
+        default=False,
+        help="Compute and apply dataset-level normalization (for non-zscored data)",
+    )
     args = parser.parse_args()
     inputs_path = args.dataset
     outputs_path = args.output_dir
@@ -97,15 +108,11 @@ def main():
     train_ds = fmri_ds.filter(lambda x: any(x["participant_id"].startswith(tid) for tid in train_ids))
     print(f"Training set: {len(train_ds)} samples (from {len(fmri_ds)} total)")
 
-    # Compute normalization params from training set only to prevent leakage
+    # Compute normalization params only for non-zscored data
     norm_params = None
-    print("Computing normalization parameters from training set only...")
-    norm_params = compute_normalization_params(train_ds)
-    # Save training-set norm_params for use during extraction
-    norm_params_path = Path(outputs_path) / "train_norm_params.npz"
-    norm_params_path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(norm_params_path, **norm_params)
-    print(f"Saved training-set norm params to {norm_params_path}")
+    if args.normalize:
+        print("Computing normalization parameters from training set only...")
+        norm_params = compute_normalization_params(train_ds)
 
     timeseires_to_images_kargs = {
         "image_column_name": image_column_name,
@@ -144,7 +151,7 @@ def main():
 
     # Freeze the model parameters aside from the embedding layer
     for name, param in model.named_parameters():
-        if all(keywords not in name for keywords in["patch_embed", "cls_token"]):
+        if all(keywords not in name for keywords in["patch_embed", "cls_token", "decoder"]):
             param.requires_grad = False
 
     # read this: https://medium.com/@kdk199604/fpt-time-series-analysis-powered-by-frozen-pretrained-transformers-7f6d6fc64186

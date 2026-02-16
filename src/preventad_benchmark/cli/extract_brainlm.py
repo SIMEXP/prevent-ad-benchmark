@@ -1,32 +1,34 @@
 # cleaned up for using published weights for direct transfer with CLS token
-
+import argparse
 import json
-from transformers import ViTMAEConfig
-from datasets import load_from_disk
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import torch
 
 from tqdm import tqdm
-from pathlib import Path
+from transformers import ViTMAEConfig
+from datasets import load_from_disk
 
-from preventad_benchmark.models.brainlm_mae.utils import timeseires_to_images, get_attention_cls_token, padding_timeseries_For_vitmae
+from preventad_benchmark.models.brainlm_mae.utils import (
+    timeseires_to_images, get_attention_cls_token, padding_timeseries_For_vitmae
+)
 from preventad_benchmark.models.brainlm_mae.modeling_vit_mae_with_padding import ViTMAEForPreTraining
 try:
     from preventad_benchmark.models.brainlm_mae.replace_vitmae_attn_with_flash_attn import replace_vitmae_attn_with_flash_attn
     replace_vitmae_attn_with_flash_attn()
 except ImportError:
     print('not using flash attention')
-import argparse
 
 from preventad_benchmark.dataset.utils import compute_normalization_params
-from preventad_benchmark.evaluation import run_test_experiment
+from preventad_benchmark.evaluation import run_foundation_model_experiment
 from preventad_benchmark.evaluation.targets import load_prediction_targets
 
 from preventad_benchmark.config import BRAINLM_MODEL_ARGUMENTS, BRAINLM_TIMESERIES_LENGTH
 
-timeseries_length = BRAINLM_TIMESERIES_LENGTH
-model_arguments = BRAINLM_MODEL_ARGUMENTS
+TIMESERIES_LENGTH = BRAINLM_TIMESERIES_LENGTH
+MODEL_ARGUMENTS = BRAINLM_MODEL_ARGUMENTS
 
 
 def _extract_embeddings(dataset, model, device, image_column_name, norm_params=None):
@@ -34,12 +36,9 @@ def _extract_embeddings(dataset, model, device, image_column_name, norm_params=N
 
     Returns dict with cls_token, cls_embedding, mean_embedding, max_embedding arrays.
     """
-    if norm_params is None and "raw_timeseries" in dataset.column_names:
-        norm_params = compute_normalization_params(dataset)
-
     timeseires_to_images_kargs = {
         "image_column_name": image_column_name,
-        "timeseries_length": timeseries_length,
+        "timeseries_length": TIMESERIES_LENGTH,
         "max_val_to_scale": None,
         "norm_params": norm_params,
     }
@@ -82,7 +81,8 @@ def _extract_embeddings(dataset, model, device, image_column_name, norm_params=N
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Extract BrainLM embeddings via direct transfer")
+    """Extract BrainLM embeddings via checkpoint."""
+    parser = argparse.ArgumentParser(description="Extract BrainLM embeddings via checkpoint.")
     parser.add_argument(
         "--dataset",
         type=str,
@@ -99,7 +99,10 @@ def main():
         "--output-dir",
         type=str,
         default="outputs/downstreams/brainlm",
-        help="Output directory for downstream experiment results (default: outputs/downstreams/brainlm)",
+        help=(
+            "Output directory for downstream experiment results "
+            "(default: outputs/downstreams/brainlm)"
+        ),
     )
     parser.add_argument(
         "--output-prefix",
@@ -118,6 +121,12 @@ def main():
         default=0,
         help="Index of the train/test split (default: 0)",
     )
+    parser.add_argument(
+        "--normalize",
+        action="store_true",
+        default=False,
+        help="Compute and apply dataset-level normalization (for non-zscored data)",
+    )
     args = parser.parse_args()
     inputs_path = args.dataset
     model_path = args.model_path
@@ -132,7 +141,7 @@ def main():
 
     # load model
     config = ViTMAEConfig.from_pretrained(model_path)
-    config.update(model_arguments)
+    config.update(MODEL_ARGUMENTS)
     model = ViTMAEForPreTraining.from_pretrained(
             model_path,
             config=config,
@@ -145,41 +154,51 @@ def main():
 
     fmri_ds = load_from_disk(inputs_path)
     split_path = Path("data/processed/train_test_split.json")
-    with open(split_path) as f:
+    with open(split_path, "r", encoding="utf-8") as f:
         split_ids = json.load(f)
 
     # Filter train set
     train_ids = set(split_ids[args.split_index]["train"])
     # BrainLM participant_ids may have extra suffixes (e.g. _space-..._desc-...);
     # match by checking if any split ID is a prefix of the dataset participant_id
-    train_ds = fmri_ds.filter(lambda x: any(x["participant_id"].startswith(tid) for tid in train_ids))
+    train_ds = fmri_ds.filter(
+        lambda x: any(x["participant_id"].startswith(tid) for tid in train_ids)
+    )
     print(f"Training set: {len(train_ds)} samples (from {len(fmri_ds)} total)")
+
+    # Compute normalization params only for non-zscored data
+    train_norm_params = None
+    if args.normalize:
+        train_norm_params = compute_normalization_params(train_ds)
+
+    print("\nExtracting train embeddings...")
+    train_features = _extract_embeddings(
+        train_ds, model, device, image_column_name, train_norm_params
+    )
+    train_labels = load_prediction_targets(participant_ids=train_ids)
 
     # Filter test set
     test_ids = set(split_ids[args.split_index]["test"])
     test_ds = fmri_ds.filter(lambda x: any(x["participant_id"].startswith(tid) for tid in test_ids))
     print(f"Test set: {len(test_ds)} samples (from {len(fmri_ds)} total)")
 
-    # Compute normalization params from training set
-    norm_params = None
-    if "raw_timeseries" in fmri_ds.column_names:
-        norm_params = compute_normalization_params(train_ds)
-
-    # Extract embeddings for train and test
-    print("\nExtracting train embeddings...")
-    train_features = _extract_embeddings(train_ds, model, device, image_column_name, norm_params)
-    train_labels = load_prediction_targets(participant_ids=train_ids)
+    # Compute normalization params only for non-zscored data
+    test_norm_params = None
+    if args.normalize:
+        test_norm_params = compute_normalization_params(test_ds)
 
     print("\nExtracting test embeddings...")
-    test_features = _extract_embeddings(test_ds, model, device, image_column_name, norm_params)
+    test_features = _extract_embeddings(test_ds, model, device, image_column_name, test_norm_params)
     test_labels = load_prediction_targets(participant_ids=test_ids)
 
     test_split_results = []
-    for feat_name in train_features:
-        print(f"Running experiments with {feat_name} features, shape: {train_features[feat_name].shape}")
-        feat_results = run_test_experiment(
-            train_features[feat_name], train_labels,
-            test_features[feat_name], test_labels,
+    for feat_name, train_feat in train_features.items():
+        print(f"Running experiments with {feat_name} features.")
+        feat_results = run_foundation_model_experiment(
+            train_feat,
+            train_labels,
+            test_features[feat_name],
+            test_labels,
             feat_name,
         )
         feat_results["Features"] = feat_name

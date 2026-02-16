@@ -8,12 +8,12 @@ import numpy as np
 import pandas as pd
 
 from preventad_benchmark.config import EVALUATION_TARGETS, TIMESERIES_LENGTH, EVALUATION_PCA_COMPONENTS
-from preventad_benchmark.evaluation.pipelines import linear_pipeline, svm_pipeline, svm_fit_score, linear_fit_score
+from preventad_benchmark.evaluation.pipelines import baseline_pipeline, svm_fit_score, linear_fit_score, valid_samples
 from preventad_benchmark.evaluation.targets import load_prediction_targets
 from preventad_benchmark.plotting.utils import TARGET_NAMES
 
 
-def baseline_experiment(input_dir, output_dir):
+def run_baseline_experiment(input_dir, output_dir):
     """Run downstream experiment with baseline features.
     Extracts raw timeseries, functional connectivity from the Arrow dataset.
 
@@ -43,69 +43,20 @@ def baseline_experiment(input_dir, output_dir):
     labels = load_prediction_targets(input_dir)
 
     # Timeseries -> PCA
-    print("Running BrainHarmonix baseline: timeseries")
-    run_downstream_experiment(
+    print("Running baseline: timeseries")
+    baseline_pipeline(
         ts_flatten, labels, output_dir, 'timeseries',
         pca_components=EVALUATION_PCA_COMPONENTS,
     )
 
     # Connectivity -> no PCA
-    print("Running BrainHarmonix baseline: connectivity")
-    run_downstream_experiment(
-        fc, labels, output_dir, 'connectivity',
+    print("Running baseline: connectivity")
+    baseline_pipeline(
+        fc, labels, output_dir, 'connectivity', run_dummy=True
     )
 
 
-def run_downstream_experiment(features, labels, output_dir, prefix, pca_components=None):
-    """Run SVM + linear pipelines for all targets and save results.
-
-    Args:
-        features: (N, D) array of feature vectors.
-        labels: dict mapping target name -> label array (from load_prediction_targets).
-        output_dir: Directory to write result TSVs.
-        prefix: Feature name prefix for output filenames (e.g. 'cls-token', 'connectivity').
-        pca_components: Number of PCA components. None skips PCA (use for embeddings).
-            Pass EVALUATION_PCA_COMPONENTS for high-dimensional timeseries.
-    """
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    features = np.array(features)
-
-    for target_name in EVALUATION_TARGETS:
-        y = np.array(labels[target_name])
-
-        # Filter out samples with NaN/None labels
-        valid_mask = np.array([
-            v is not None and v != 'nan' and not (isinstance(v, float) and np.isnan(v))
-            for v in y
-        ])
-
-        if not valid_mask.any():
-            print(f"  Skipping {target_name}: all labels are NaN")
-            continue
-        X_valid = features[valid_mask]
-        y_valid = y[valid_mask].tolist()
-
-        # SVM pipeline
-        svm_path = output_dir / f"x-{prefix}_y-{target_name}_svm_prediction.tsv"
-        if svm_path.exists():
-            print(f"{svm_path} exists, skip")
-        else:
-            print(f"  Running SVM for {prefix} -> {target_name}...")
-            svm_scores = svm_pipeline(X_valid, y_valid, pca_components=pca_components)
-            pd.DataFrame(svm_scores).to_csv(svm_path, sep="\t")
-
-        # Linear pipeline
-        linear_path = output_dir / f"x-{prefix}_y-{target_name}_linear_prediction.tsv"
-        if linear_path.exists():
-            print(f"{linear_path} exists, skip")
-        else:
-            print(f"  Running Linear for {prefix} -> {target_name}...")
-            linear_scores = linear_pipeline(X_valid, y_valid, pca_components=pca_components)
-            pd.DataFrame(linear_scores).to_csv(linear_path, sep="\t")
-
-
-def run_test_experiment(train_features, train_labels, test_features, test_labels, prefix, pca_components=None):
+def run_foundation_model_experiment(train_features, train_labels, test_features, test_labels, prefix, pca_components=None):
     """Fit SVM + linear on test-set embeddings and score.
 
     Args:
@@ -121,40 +72,19 @@ def run_test_experiment(train_features, train_labels, test_features, test_labels
 
     all_results = []
     for target_name in EVALUATION_TARGETS:
-        y_train = np.array(train_labels[target_name])
-        # Filter out samples with NaN/None labels
-        valid_mask = np.array([
-            v is not None and v != 'nan' and not (isinstance(v, float) and np.isnan(v))
-            for v in y_train
-        ])
+        x_train, y_train = valid_samples(train_features, train_labels, target_name)
+        x_test, y_test = valid_samples(test_features, test_labels, target_name)
 
-        if not valid_mask.any():
+        if y_train is None or y_test is None:
             print(f"  Skipping {target_name}: all labels are NaN")
             continue
-        x_train_valid = train_features[valid_mask]
-        y_train_valid = y_train[valid_mask].tolist()
 
-        y_test = np.array(test_labels[target_name])
-        # Filter out samples with NaN/None labels
-        valid_mask = np.array([
-            v is not None and v != 'nan' and not (isinstance(v, float) and np.isnan(v))
-            for v in y_test
-        ])
-
-        if not valid_mask.any():
-            print(f"  Skipping {target_name}: all labels are NaN")
-            continue
-        x_test_valid = test_features[valid_mask]
-        y_test_valid = y_test[valid_mask].tolist()
-
-        # SVM
         print(f"  Running {prefix} -> {target_name}...")
-        svm_scores = svm_fit_score(x_train_valid, y_train_valid, x_test_valid, y_test_valid, pca_components=pca_components)
-        linear_scores = linear_fit_score(x_train_valid, y_train_valid, x_test_valid, y_test_valid, pca_components=pca_components)
+        svm_scores = svm_fit_score(x_train, y_train, x_test, y_test, pca_components=pca_components)
+        linear_scores = linear_fit_score(x_train, y_train, x_test, y_test, pca_components=pca_components)
         results = pd.DataFrame([svm_scores, linear_scores])
         results["Classifier"] = ["SVM", "Linear"]
         results["Target"] = TARGET_NAMES[target_name]
         all_results.append(results)
     return pd.concat(all_results).reset_index(drop=True)
-
 
