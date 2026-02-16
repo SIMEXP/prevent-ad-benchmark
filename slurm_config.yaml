@@ -1,0 +1,14 @@
+defaults:
+  account: rrg-pbellec
+  time: "0:10:00"
+  mem: "8G"
+  cpus_per_task: 4
+  gres: "gpu:1"
+
+overrides:
+  finetune_brainharmonix:
+    time: "1:00:00"
+    mem: "24G"
+  finetune_brainlm:
+    time: "1:00:00"
+    mem: "24G"

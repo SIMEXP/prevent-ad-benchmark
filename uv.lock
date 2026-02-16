@@ -10,6 +10,15 @@ version = "2.7.4"
 requires-dist = ["torch", "einops"]
 
 [[package]]
+name = "absl-py"
+version = "2.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/10/2a/c93173ffa1b39c1d0395b7e842bbdc62e556ca9d8d3b5572926f3e4ca752/absl_py-2.3.1.tar.gz", hash = "sha256:a97820526f7fbfd2ec1bce83f3f25e3a14840dac0d8e02a0b71cd75db3f77fc9", size = 116588, upload-time = "2025-07-03T09:31:44.05Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/aa/ba0014cc4659328dc818a28827be78e6d97312ab0cb98105a770924dc11e/absl_py-2.3.1-py3-none-any.whl", hash = "sha256:eeecf07f0c2a93ace0772c92e596ace6d3d3996c042b2128459aaae2a76de11d", size = 135811, upload-time = "2025-07-03T09:31:42.253Z" },
+]
+
+[[package]]
 name = "accelerate"
 version = "1.8.1"
 source = { registry = "https://pypi.org/simple" }
@@ -233,6 +242,27 @@ css = [
 ]
 
 [[package]]
+name = "brainharmonix"
+version = "0.1.0"
+source = { git = "https://github.com/MedARC-AI/Brain-Harmony.git?rev=5398f8f5540222973cf82d13ac1eb4c4b38af636#5398f8f5540222973cf82d13ac1eb4c4b38af636" }
+dependencies = [
+    { name = "absl-py" },
+    { name = "accelerate" },
+    { name = "einops" },
+    { name = "matplotlib" },
+    { name = "ml-collections" },
+    { name = "nibabel" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "pandas" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+    { name = "timm" },
+    { name = "torch" },
+    { name = "tqdm" },
+]
+
+[[package]]
 name = "certifi"
 version = "2025.1.31"
 source = { registry = "https://pypi.org/simple" }
@@ -307,18 +337,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/cd/e5/131d2fb1b0dddafc37be4f3a2fa79aa4c037368be9423061dccadfd90091/charset_normalizer-3.4.1-cp313-cp313-win32.whl", hash = "sha256:eb8178fe3dba6450a3e024e95ac49ed3400e506fd4e9e5c32d30adda88cbd407", size = 95391, upload-time = "2024-12-24T18:11:24.139Z" },
     { url = "https://files.pythonhosted.org/packages/27/f2/4f9a69cc7712b9b5ad8fdb87039fd89abba997ad5cbe690d1835d40405b0/charset_normalizer-3.4.1-cp313-cp313-win_amd64.whl", hash = "sha256:b1ac5992a838106edb89654e0aebfc24f5848ae2547d22c2c3f66454daa11971", size = 102702, upload-time = "2024-12-24T18:11:26.535Z" },
     { url = "https://files.pythonhosted.org/packages/0e/f6/65ecc6878a89bb1c23a086ea335ad4bf21a588990c3f535a227b9eea9108/charset_normalizer-3.4.1-py3-none-any.whl", hash = "sha256:d98b1668f06378c6dbefec3b92299716b931cd4e6061f3c875a71ced1780ab85", size = 49767, upload-time = "2024-12-24T18:12:32.852Z" },
-]
-
-[[package]]
-name = "click"
-version = "8.2.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/60/6c/8ca2efa64cf75a977a0d7fac081354553ebe483345c734fb6b6515d96bbc/click-8.2.1.tar.gz", hash = "sha256:27c491cc05d968d271d5a1db13e3b5a184636d9d930f148c50b038f0d0646202", size = 286342, upload-time = "2025-05-20T23:19:49.832Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/85/32/10bb5764d90a8eee674e9dc6f4db6a0ab47c8c4d0d83c27f7c39ac415a4d/click-8.2.1-py3-none-any.whl", hash = "sha256:61a3265b914e850b85317d0b3109c7f8cd35a670f963866005d6ef1d5175a12b", size = 102215, upload-time = "2025-05-20T23:19:47.796Z" },
 ]
 
 [[package]]
@@ -656,72 +674,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/09/89/d4e234727a26b2546c8fb70a276cd924260d60135f2165bf8b9ed67bb9a4/hf_transfer-0.1.9-cp38-abi3-win32.whl", hash = "sha256:435cc3cdc8524ce57b074032b8fd76eed70a4224d2091232fa6a8cef8fd6803e", size = 1086605, upload-time = "2025-01-07T10:05:18.873Z" },
     { url = "https://files.pythonhosted.org/packages/a1/14/f1e15b851d1c2af5b0b1a82bf8eb10bda2da62d98180220ba6fd8879bb5b/hf_transfer-0.1.9-cp38-abi3-win_amd64.whl", hash = "sha256:16f208fc678911c37e11aa7b586bc66a37d02e636208f18b6bc53d29b5df40ad", size = 1160240, upload-time = "2025-01-07T10:05:14.324Z" },
 ]
-
-[[package]]
-name = "hfplayground"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "click" },
-    { name = "datasets" },
-    { name = "evaluate" },
-    { name = "huggingface-hub", extra = ["hf-transfer"] },
-    { name = "invoke" },
-    { name = "ipython" },
-    { name = "jupyter" },
-    { name = "matplotlib" },
-    { name = "nilearn" },
-    { name = "ninja" },
-    { name = "numpy" },
-    { name = "packaging" },
-    { name = "pandas" },
-    { name = "pyarrow" },
-    { name = "seaborn" },
-    { name = "setuptools" },
-    { name = "torch" },
-    { name = "torchaudio" },
-    { name = "torchvision" },
-    { name = "transformers", extra = ["torch"] },
-]
-
-[package.optional-dependencies]
-build = [
-    { name = "packaging" },
-    { name = "setuptools" },
-    { name = "torch" },
-]
-compile = [
-    { name = "flash-attn" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "click", specifier = ">=8.2.1" },
-    { name = "datasets", specifier = ">=3.2.0" },
-    { name = "evaluate", specifier = ">=0.4.4" },
-    { name = "flash-attn", marker = "extra == 'compile'", specifier = "<2.8.0" },
-    { name = "huggingface-hub", extras = ["hf-transfer"], specifier = ">=0.28.1" },
-    { name = "invoke", specifier = ">=2.2.0" },
-    { name = "ipython", specifier = ">=8.32.0" },
-    { name = "jupyter", specifier = ">=1.1.1" },
-    { name = "matplotlib", specifier = ">=3.10.0" },
-    { name = "nilearn", specifier = ">=0.11.1" },
-    { name = "ninja" },
-    { name = "numpy", specifier = ">=2.2.2" },
-    { name = "packaging" },
-    { name = "packaging", marker = "extra == 'build'" },
-    { name = "pandas", specifier = ">=2.2.3" },
-    { name = "pyarrow", specifier = ">=19.0.0" },
-    { name = "seaborn", specifier = ">=0.13.2" },
-    { name = "setuptools" },
-    { name = "setuptools", marker = "extra == 'build'" },
-    { name = "torch", specifier = ">=2.6.0" },
-    { name = "torch", marker = "extra == 'build'" },
-    { name = "torchaudio" },
-    { name = "torchvision" },
-    { name = "transformers", extras = ["torch"], specifier = ">=4.48.3" },
-]
-provides-extras = ["build", "compile"]
 
 [[package]]
 name = "httpcore"
@@ -1344,6 +1296,19 @@ wheels = [
 ]
 
 [[package]]
+name = "ml-collections"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "absl-py" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b8/f8/1a9ae6696dbb6bc9c44ddf5c5e84710d77fe9a35a57e8a06722e1836a4a6/ml_collections-1.1.0.tar.gz", hash = "sha256:0ac1ac6511b9f1566863e0bb0afad0c64e906ea278ad3f4d2144a55322671f6f", size = 61356, upload-time = "2025-04-17T08:25:02.247Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ab/8a/18d4ff2c7bd83f30d6924bd4ad97abf418488c3f908dea228d6f0961ad68/ml_collections-1.1.0-py3-none-any.whl", hash = "sha256:23b6fa4772aac1ae745a96044b925a5746145a70734f087eaca6626e92c05cbc", size = 76707, upload-time = "2025-04-17T08:24:59.038Z" },
+]
+
+[[package]]
 name = "mpmath"
 version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1850,6 +1815,74 @@ sdist = { url = "https://files.pythonhosted.org/packages/13/fc/128cc9cb8f03208bd
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3c/a6/bc1012356d8ece4d66dd75c4b9fc6c1f6650ddd5991e421177d9f8f671be/platformdirs-4.3.6-py3-none-any.whl", hash = "sha256:73e575e1408ab8103900836b97580d5307456908a03e92031bab39e4554cc3fb", size = 18439, upload-time = "2024-09-17T19:06:49.212Z" },
 ]
+
+[[package]]
+name = "preventad-benchmark"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "brainharmonix" },
+    { name = "datasets" },
+    { name = "einops" },
+    { name = "evaluate" },
+    { name = "flash-attn" },
+    { name = "huggingface-hub", extra = ["hf-transfer"] },
+    { name = "invoke" },
+    { name = "ipython" },
+    { name = "jupyter" },
+    { name = "matplotlib" },
+    { name = "nilearn" },
+    { name = "ninja" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "pandas" },
+    { name = "pyarrow" },
+    { name = "seaborn" },
+    { name = "setuptools" },
+    { name = "timm" },
+    { name = "torch" },
+    { name = "torchaudio" },
+    { name = "torchvision" },
+    { name = "transformers", extra = ["torch"] },
+]
+
+[package.optional-dependencies]
+build = [
+    { name = "packaging" },
+    { name = "setuptools" },
+    { name = "torch" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "brainharmonix", git = "https://github.com/MedARC-AI/Brain-Harmony.git?rev=5398f8f5540222973cf82d13ac1eb4c4b38af636" },
+    { name = "datasets", specifier = ">=3.2.0" },
+    { name = "einops", specifier = ">=0.8.1" },
+    { name = "evaluate", specifier = ">=0.4.4" },
+    { name = "flash-attn", specifier = ">=2.7.4.post1" },
+    { name = "huggingface-hub", extras = ["hf-transfer"], specifier = ">=0.28.1" },
+    { name = "invoke", specifier = ">=2.2.0" },
+    { name = "ipython", specifier = ">=8.32.0" },
+    { name = "jupyter", specifier = ">=1.1.1" },
+    { name = "matplotlib", specifier = ">=3.10.0" },
+    { name = "nilearn", specifier = ">=0.11.1" },
+    { name = "ninja" },
+    { name = "numpy", specifier = ">=2.2.2" },
+    { name = "packaging" },
+    { name = "packaging", marker = "extra == 'build'" },
+    { name = "pandas", specifier = ">=2.2.3" },
+    { name = "pyarrow", specifier = ">=19.0.0" },
+    { name = "seaborn", specifier = ">=0.13.2" },
+    { name = "setuptools" },
+    { name = "setuptools", marker = "extra == 'build'" },
+    { name = "timm", specifier = ">=1.0.24" },
+    { name = "torch", specifier = ">=2.6.0" },
+    { name = "torch", marker = "extra == 'build'" },
+    { name = "torchaudio" },
+    { name = "torchvision" },
+    { name = "transformers", extras = ["torch"], specifier = ">=4.48.3" },
+]
+provides-extras = ["build"]
 
 [[package]]
 name = "prometheus-client"
@@ -2450,6 +2483,22 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/bd/55/b5148dcbf72f5cde221f8bfe3b6a540da7aa1842f6b491ad979a6c8b84af/threadpoolctl-3.5.0.tar.gz", hash = "sha256:082433502dd922bf738de0d8bcc4fdcbf0979ff44c42bd40f5af8a282f6fa107", size = 41936, upload-time = "2024-04-29T13:50:16.544Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4b/2c/ffbf7a134b9ab11a67b0cf0726453cedd9c5043a4fe7a35d1cefa9a1bcfb/threadpoolctl-3.5.0-py3-none-any.whl", hash = "sha256:56c1e26c150397e58c4926da8eeee87533b1e32bef131bd4bf6a2f45f3185467", size = 18414, upload-time = "2024-04-29T13:50:14.014Z" },
+]
+
+[[package]]
+name = "timm"
+version = "1.0.24"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "pyyaml" },
+    { name = "safetensors" },
+    { name = "torch" },
+    { name = "torchvision" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f4/9d/0ea45640be447445c8664ce2b10c74f763b0b0b9ed11620d41a4d4baa10c/timm-1.0.24.tar.gz", hash = "sha256:c7b909f43fe2ef8fe62c505e270cd4f1af230dfbc37f2ee93e3608492b9d9a40", size = 2412239, upload-time = "2026-01-07T00:26:17.541Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/92/dd/c1f5b0890f7b5db661bde0864b41cb0275be76851047e5f7e085fe0b455a/timm-1.0.24-py3-none-any.whl", hash = "sha256:8301ac783410c6ad72c73c49326af6d71a9e4d1558238552796e825c2464913f", size = 2560563, upload-time = "2026-01-07T00:26:13.956Z" },
 ]
 
 [[package]]

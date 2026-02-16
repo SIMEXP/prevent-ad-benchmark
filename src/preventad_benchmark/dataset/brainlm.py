@@ -14,26 +14,11 @@ from datasets import Dataset
 from tqdm import tqdm
 from importlib.resources import files
 
-# hard cpded for this tutorial
-DATASET_MAPPER = {
-    'development_fmri': {
-        'atlas_file': 'resource/development_fmri/resample_A424+2mm.nii.gz',
-        'phenotype': {
-            'filepath': "data/external/development_fmri/development_fmri/participants.tsv",
-            'index_col': "participant_id",
-            'convert_data': ['Age', 'Gender', 'AgeGroup', 'Child_Adult']
-        }
+from preventad_benchmark.config import A424_NPARCELS, BRAINLM_DATASET_CONFIGS, QC_FILTERS, DENOISE_STRATEGY_NAME
+from preventad_benchmark.dataset.utils import load_phenotype
+from preventad_benchmark.evaluation.targets import load_prediction_targets
 
-    },
-    'preventad': {
-        'atlas_file': 'resource/preventad/resample_A424+2mm.nii.gz',
-        'phenotype': {
-            'filepath': "data/source/dataset-preventad_version-8.1internal_pipeline-gigapreprocess2/dataset-preventad81internal_desc-sexage_pheno.tsv",
-            'index_col': "identifier",
-            'convert_data': ['Sex', 'Candidate_Age']
-        }
-    }
-}
+DATASET_MAPPER = BRAINLM_DATASET_CONFIGS
 
 
 def convert_fMRIvols_to_A424(data_path, output_path, dataset_name='development_fmri'):
@@ -55,14 +40,11 @@ def convert_fMRIvols_to_A424(data_path, output_path, dataset_name='development_f
         print("fMRI data path specified:", data_path)
         print("Number of fMRI files:", len(paths))
     else:
-        phenotype = pd.read_csv(mapper['phenotype']['filepath'], index_col=mapper['phenotype']['index_col'], sep='\t')
-        paths = []
-        for idx in phenotype.index:
-            cur = Path(data_path) / '/'.join(idx.split('_')[:2]) / f"func/{idx}_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz"
-            paths.append(str(cur))
+        phenotype = load_phenotype(mapper['phenotype']['filepath'], apply_qc=True)
+        paths = [str(Path(data_path) / f'{identifier}_space-MNI152NLin2009cAsym_desc-{DENOISE_STRATEGY_NAME}_bold.nii.gz') for identifier in phenotype.index]
 
     # Atlas file (Standard space atlas with cortical GM expanded by 2mm in WM)
-    l = files('hfplayground') / mapper['atlas_file']
+    l = Path(mapper['atlas_file'])
     print("Atlas file:", l)
     try:
         label_img = nib.load(l)
@@ -104,7 +86,7 @@ def convert_fMRIvols_to_A424(data_path, output_path, dataset_name='development_f
                 # Get parcellated time series given a label input
                 # print(f'\nGet parcellated time series using {l}\n\n')
 
-                nParcels = 424
+                nParcels = A424_NPARCELS
                 pMeas = np.zeros((nParcels, 3))
                 pmTS = np.zeros((sh, nParcels))
 
@@ -127,7 +109,7 @@ def convert_fMRIvols_to_A424(data_path, output_path, dataset_name='development_f
             print(f"File {f} not a nifti file. Skipping...")
 
 
-def convert_to_arrow_datasets(uk_biobank_dir, save_path,  dataset_name='development_fmri', ts_min_length=200, compute_Stats=True):
+def convert_to_brainlm_arrow_datasets(uk_biobank_dir, save_path,  dataset_name='development_fmri', ts_min_length=200, compute_Stats=True):
     """
     This function accepts a arguments object containing the filepath of a directory containing
      dat files for patient fmri recordings from the UK BioBank dataset.
@@ -147,20 +129,17 @@ def convert_to_arrow_datasets(uk_biobank_dir, save_path,  dataset_name='developm
         save_path: concatenation of dataset save directory and arrow dataset name
     """
     mapper = DATASET_MAPPER[dataset_name]['phenotype']
-    phenotype = pd.read_csv(mapper['filepath'], index_col=mapper['index_col'], sep='\t')
 
     if dataset_name == 'development_fmri':
+        phenotype = pd.read_csv(mapper['filepath'], index_col=mapper['index_col'], sep='\t')
         # Assuming that filename is patient ID, thus each file with unique name is a separate patient.
         all_dat_files = os.listdir(uk_biobank_dir)
         all_dat_files = [filename for filename in all_dat_files if ".dat" in filename]
         all_dat_files.sort()  # Sorted in ascending order, first 80% will be train. Assuming no bias in patient order
     else:
-        # filter base on cerebellum coverage and other bids fileters
-        phenotype = phenotype.loc[phenotype['cerebellum_coverage']>0.75, :]
-        phenotype = phenotype.loc[phenotype['proportion_kept']>0.5, :]
-        phenotype = phenotype.loc[phenotype['ses'] == "BL00", :]  # hard coding for baseline for now
-        phenotype = phenotype.loc[phenotype['run'] == 1, :]
-        all_dat_files = [f'{identifier}_space-MNI152NLin2009cAsym_desc-preproc_bold.dat' for identifier in phenotype.index]
+        # filter based on cerebellum coverage and other BIDS filters
+        phenotype = load_phenotype(mapper['filepath'], apply_qc=True)
+        all_dat_files = [f'{identifier}_space-MNI152NLin2009cAsym_desc-{DENOISE_STRATEGY_NAME}_bold.dat' for identifier in phenotype.index]
 
     train_split_idx = len(all_dat_files)
     train_files = all_dat_files[:train_split_idx]
@@ -184,8 +163,8 @@ def convert_to_arrow_datasets(uk_biobank_dir, save_path,  dataset_name='developm
 
     if compute_Stats:
         num_files = sh_35 #len(all_dat_files_rs) + len(all_dat_files_tf)
-        all_stds = np.zeros([num_files, 424])
-        all_data = np.empty([num_files*ts_min_length, 424])
+        all_stds = np.zeros([num_files, A424_NPARCELS])
+        all_data = np.empty([num_files*ts_min_length, A424_NPARCELS])
         for idx,file in enumerate(tqdm(train_files)):
             if idx == num_files:
                 break
@@ -265,16 +244,12 @@ def convert_to_arrow_datasets(uk_biobank_dir, save_path,  dataset_name='developm
         "Filename": [],
         "participant_id": [],
     }
-    # Load phenotype data
-    convert_data = mapper['convert_data']
-    for col in convert_data:
-        train_dataset_dict[col] = []
 
     for filename in tqdm(train_files, desc="Normalizing Data"):
         if dataset_name =='development_fmri':
             participant_id = Path(filename).stem.split('_')[0]
         elif dataset_name == 'preventad':
-            participant_id = Path(filename).stem.split('_space')[0]
+            participant_id = Path(filename).stem.split("_seg")[0]
         dat_arr = np.loadtxt(os.path.join(uk_biobank_dir, filename)).astype(
             np.float32
         )
@@ -376,16 +351,32 @@ def convert_to_arrow_datasets(uk_biobank_dir, save_path,  dataset_name='developm
         ].append(_99th_global_recording)
         train_dataset_dict["Filename"].append(filename)
         train_dataset_dict["participant_id"].append(participant_id)
-        for col in convert_data:
-            train_dataset_dict[col].append(phenotype.loc[participant_id, col])
 
-    arrow_train_dataset = Dataset.from_dict(train_dataset_dict)
-    arrow_train_dataset.save_to_disk(
-        dataset_path=save_path
-    )
+    output_arrow_dir = Path(save_path)
+    # Create and save Arrow dataset at template path
+    dir_tmp = output_arrow_dir.parent / "tmp.arrow"
+    dir_tmp.mkdir(exist_ok=True, parents=True)
+    tmp = Dataset.from_dict(train_dataset_dict)
+    tmp.save_to_disk(dataset_path=dir_tmp)
 
+    # get other phenotypes
+    phenotypes = load_prediction_targets(dir_tmp)
+    train_dataset_dict.update(phenotypes)
+
+    # update Arrow dataset with phenotypes
+    output_arrow_dir.mkdir(exist_ok=True, parents=True)
+    arrow_dataset = Dataset.from_dict(train_dataset_dict)
+    arrow_dataset.save_to_disk(dataset_path=output_arrow_dir)
+    print(f"Saved Arrow dataset to {output_arrow_dir}")
+
+    # Print dataset info
+    print(f"\nDataset info:")
+    print(f"  - Number of samples: {len(arrow_dataset)}")
+    if len(arrow_dataset) > 0:
+        sample_ts = arrow_dataset[0]["Raw_Recording"]
+        print(f"  - Time series shape: {np.array(sample_ts).shape}")
     # # --- Save Brain Region Coordinates Into Another Arrow Dataset ---#
-    # coords_dat = np.loadtxt(files('hfplayground') / "data/brainlm/atlases/A424_Coordinates.dat").astype(np.float32)
+    # coords_dat = np.loadtxt(files('preventad_benchmark') / "data/brainlm/atlases/A424_Coordinates.dat").astype(np.float32)
     # coords_pd = pd.DataFrame(coords_dat, columns=["Index", "X", "Y", "Z"])
     # coords_dataset = Dataset.from_pandas(coords_pd)
     # coords_dataset.save_to_disk(

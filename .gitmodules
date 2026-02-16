@@ -1,3 +1,6 @@
 [submodule "BrainLM"]
 	path = BrainLM
 	url = git@github.com:vandijklab/BrainLM.git
+[submodule "BrainHarmony"]
+	path = BrainHarmony
+	url = git@github.com:hzlab/Brain-Harmony.git
