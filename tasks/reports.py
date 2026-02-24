@@ -24,18 +24,21 @@ INPUT_DIRS = {
 }
 @invoke.task(
     help={
-        "experiment": "baseline, brainharmonix, brainlm",
+        "experiment": "all, baseline, brainharmonix, brainlm",
         "output-dir": "Directory to save summary table (default: outputs/reports/)",
     }
 )
 def generate_summary(c, experiment='baselines', output_dir=PROJECT_ROOT / 'outputs/reports/'):
     """Generate summary table from downstream experiment results.
-    The default will only include the baseline experiments, but you can specify other directories with the --input-dirs argument.
+    The default will only include the baseline experiments, but you can specify other directories with the --experiment argument.
 
     Example:
         inv reports.generate-summary
-        inv reports.generate-summary --input-dirs outputs/downstreams/brainharmonix outputs/downstreams/brainlm --output-dir outputs/reports/
+        inv reports.generate-summary --experiment brainharmonix --output-dir outputs/reports/
     """
-    input_dirs = INPUT_DIRS[experiment]
+    if experiment == 'all':
+        input_dirs = [dir for dirs in INPUT_DIRS.values() for dir in dirs]
+    else:
+        input_dirs = INPUT_DIRS[experiment]
     df = load_results(input_dirs)
     make_summary_table(df, output_dir=output_dir / experiment)

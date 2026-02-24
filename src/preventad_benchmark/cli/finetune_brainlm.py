@@ -39,10 +39,11 @@ model_arguments = BRAINLM_MODEL_ARGUMENTS
 
 
 def main():
-    """Fine-tune BrainLM ViT-MAE embedding layers on PreventAD fMRI data.
+    """Fine-tune BrainLM ViT-MAE on PreventAD fMRI data.
 
-    Freezes all parameters except patch_embed and cls_token, trains with
-    masked autoencoding on the training split, then saves the fine-tuned model.
+    Freezes encoder transformer blocks, leaving patch_embeddings, cls_token,
+    and the full decoder trainable. Trains with masked autoencoding on the
+    training split, then saves the fine-tuned model.
     """
     parser = argparse.ArgumentParser(description="Fine-tune BrainLM ViT-MAE on fMRI data")
     parser.add_argument(
@@ -149,7 +150,30 @@ def main():
             config=config,
         ).to(device)
 
-    # Freeze the model parameters aside from the embedding layer
+    # Freeze encoder transformer blocks; keep patch_embeddings, cls_token, and decoder trainable
+    # position_embeddings - consider training this if the input sequence length differs from the 
+    # pretrained model (e.g. if using shorter timeseries length)
+
+    # Patch Embedding
+
+    # Purpose: Converts raw input into tokens the transformer can process.
+
+    # - Splits the input (image, signal, fMRI timeseries) into fixed-size chunks ("patches")
+    # - Projects each patch into a d_model-dimensional vector via a linear layer (or Conv layer)
+    # - Answers: "What is in this segment?"
+
+    # input [T, C] → split into patches → linear projection → [N, d_model]
+
+    # ---
+    # Position Embedding
+
+    # Purpose: Tells the transformer where each token is in the sequence.
+
+    # - Transformers have no inherent sense of order (attention is permutation-invariant)
+    # - Adds a learned or fixed vector to each token based on its position
+    # - Answers: "Where in the sequence is this token?"
+
+    # token[i] = patch_embed[i] + pos_embed[i]
     for name, param in model.named_parameters():
         if all(keywords not in name for keywords in["patch_embed", "cls_token", "decoder"]):
             param.requires_grad = False
