@@ -5,7 +5,7 @@ import pandas as pd
 from pathlib import Path
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error, r2_score, roc_auc_score
+from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error, r2_score, roc_auc_score, precision_score
 from sklearn.model_selection import StratifiedShuffleSplit, cross_validate
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder, RobustScaler
@@ -16,7 +16,7 @@ from preventad_benchmark.config import EVALUATION_N_SPLITS, EVALUATION_TARGETS
 
 
 SCORING = {
-    "classification": {"acc": "accuracy", "auc": "roc_auc", "f1": "f1"},
+    "classification": {"acc": "accuracy", "auc": "roc_auc", "f1": "f1", "precision": "precision"},
     "regression": {
         "nrmse": "neg_root_mean_squared_error",
         "nmae": "neg_mean_absolute_error",
@@ -25,6 +25,7 @@ SCORING = {
 
 }
 
+N_JOBS = -1  # Use all available CPU cores for parallel processing
 
 def valid_samples(features, labels, target_name):
     """Filter out samples with NaN/None labels and return aligned features and labels."""
@@ -42,6 +43,7 @@ def valid_samples(features, labels, target_name):
     y_valid = y[valid_mask].tolist()
     return x_valid, y_valid
 
+
 def _encode_labels(y):
     """Encode string labels to integers if needed. Returns (y, is_classification)."""
     if isinstance(y[0], str):
@@ -57,7 +59,6 @@ def _stratify_labels(y, is_clf):
     # Bin continuous values into 5 quantile groups for stratification
     percentiles = np.percentile(y, [20, 40, 60, 80])
     return np.digitize(y, percentiles)
-
 
 
 def _build_steps(estimator, pca_components=None):
@@ -90,7 +91,7 @@ def svm_pipeline(x, y, n_splits=EVALUATION_N_SPLITS, pca_components=None):
 
     cv = StratifiedShuffleSplit(n_splits=n_splits, random_state=42)
     strat_labels = _stratify_labels(y, is_clf)
-    return cross_validate(pipe, x, y, cv=cv.split(x, strat_labels), scoring=SCORING[scoring], n_jobs=-1)
+    return cross_validate(pipe, x, y, cv=cv.split(x, strat_labels), scoring=SCORING[scoring], n_jobs=N_JOBS)
 
 
 def linear_pipeline(x, y, n_splits=EVALUATION_N_SPLITS, pca_components=None):
@@ -114,7 +115,7 @@ def linear_pipeline(x, y, n_splits=EVALUATION_N_SPLITS, pca_components=None):
 
     cv = StratifiedShuffleSplit(n_splits=n_splits, random_state=42)
     strat_labels = _stratify_labels(y, is_clf)
-    return cross_validate(pipe, x, y, cv=cv.split(x, strat_labels), scoring=SCORING[scoring], n_jobs=-1)
+    return cross_validate(pipe, x, y, cv=cv.split(x, strat_labels), scoring=SCORING[scoring], n_jobs=N_JOBS)
 
 def dummy_pipeline(x, y, n_splits=EVALUATION_N_SPLITS, pca_components=None):
     """Run dummy cross-validation (DummyClassifier for classification, DummyRegressor for regression).
@@ -139,17 +140,17 @@ def dummy_pipeline(x, y, n_splits=EVALUATION_N_SPLITS, pca_components=None):
 
     cv = StratifiedShuffleSplit(n_splits=n_splits, random_state=42)
     strat_labels = _stratify_labels(y, is_clf)
-    return cross_validate(pipe, x, y, cv=cv.split(x, strat_labels), scoring=SCORING[scoring], n_jobs=-1)
+    return cross_validate(pipe, x, y, cv=cv.split(x, strat_labels), scoring=SCORING[scoring], n_jobs=N_JOBS)
 
 
-def baseline_pipeline(features, labels, output_dir, prefix, pca_components=None, run_dummy=False):
+def baseline_pipeline(features, labels, output_dir, prefix, pca_components=None):
     """Run SVM + linear pipelines for all targets and save results.
 
     Args:
         features: (N, D) array of feature vectors.
         labels: dict mapping target name -> label array (from load_prediction_targets).
         output_dir: Directory to write result TSVs.
-        prefix: Feature name prefix for output filenames (e.g. 'cls-token', 'connectivity').
+        prefix: Feature name prefix for output filenames (e.g. 'dummy', 'cls-token', 'connectivity').
         pca_components: Number of PCA components. None skips PCA (use for embeddings).
             Pass EVALUATION_PCA_COMPONENTS for high-dimensional timeseries.
         run_dummy: Run dummy classifier.
@@ -160,6 +161,16 @@ def baseline_pipeline(features, labels, output_dir, prefix, pca_components=None,
 
     for target_name in EVALUATION_TARGETS:
         x, y = valid_samples(features, labels, target_name)
+        if prefix == 'dummy':
+            # Dummy pipeline
+            dummy_path = output_dir / f"x-{prefix}_y-{target_name}_dummy_prediction.tsv"
+            if dummy_path.exists():
+                print(f"{dummy_path} exists, skip")
+            else:
+                print(f"  Running dummy classifier for {target_name}...")
+                dummy_scores = dummy_pipeline(x, y, pca_components=pca_components)
+                pd.DataFrame(dummy_scores).to_csv(dummy_path, sep="\t")
+            continue
 
         # SVM pipeline
         svm_path = output_dir / f"x-{prefix}_y-{target_name}_svm_prediction.tsv"
@@ -179,16 +190,6 @@ def baseline_pipeline(features, labels, output_dir, prefix, pca_components=None,
             linear_scores = linear_pipeline(x, y, pca_components=pca_components)
             pd.DataFrame(linear_scores).to_csv(linear_path, sep="\t")
 
-        if run_dummy:
-            # Dummy pipeline
-            dummy_path = output_dir / f"x-dummy_y-{target_name}_dummy_prediction.tsv"
-            if dummy_path.exists():
-                print(f"{dummy_path} exists, skip")
-            else:
-                print(f"  Running dummy classifier for {target_name}...")
-                dummy_scores = dummy_pipeline(x, y, pca_components=pca_components)
-                pd.DataFrame(dummy_scores).to_csv(dummy_path, sep="\t")
-
 
 def _score_predictions(y_true, y_pred, is_clf):
     """Compute evaluation metrics for a single train/test fit.
@@ -201,6 +202,7 @@ def _score_predictions(y_true, y_pred, is_clf):
             "test_acc": accuracy_score(y_true, y_pred),
             "test_auc": roc_auc_score(y_true, y_pred),
             "test_f1": f1_score(y_true, y_pred),
+            "test_precision": precision_score(y_true, y_pred),
         }
     return {
         "test_nrmse": -np.sqrt(mean_squared_error(y_true, y_pred)),

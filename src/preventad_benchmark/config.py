@@ -144,4 +144,5 @@ BRAINHARMONIX_TARGET_NUM_PATCHES = 18
 
 EVALUATION_N_SPLITS = 20
 EVALUATION_PCA_COMPONENTS = 75
-EVALUATION_TARGETS = ["sex", "age", "splifhalfage", "progess2mci", "centiloid", "abSUVR", "abSUVRbin", "centiloidbin"]
+EVALUATION_TARGETS = ["sex", "age", "splifhalfage", "progess2mci", "abSUVRbin", "centiloidbin", "centiloid", "abSUVR"]
+#  "centiloid", "abSUVR", "sex",

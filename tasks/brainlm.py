@@ -103,7 +103,7 @@ def finetune(
         "dry-run": "Print generated scripts without submitting (default: False)",
     }
 )
-def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, dry_run=False):
+def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, rerun_finetune=False, dry_run=False):
     """Submit SLURM job arrays for BrainLM fine-tuning + finetuned feature extraction.
 
     Each array task fine-tunes BrainLM on one train/test split,
@@ -151,7 +151,10 @@ def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, dry_r
                 f"--split-index $SLURM_ARRAY_TASK_ID"
                 f"{normalize_flag}"
             )
-            command = f"{finetune_cmd} && \\\n{extract_cmd}"
+            if rerun_finetune:
+                command = f"{finetune_cmd} && \\\n{extract_cmd}"
+            else:
+                command = extract_cmd
 
             submit_job_array(job_name, command, array_range, slurm_params, dry_run=dry_run)
 
@@ -209,7 +212,8 @@ def submit_evaluate(c, model_size="all", preprocessing="all", n_splits=20, dry_r
         inv brainlm.submit-evaluate --dry-run
     """
     slurm_params = load_slurm_config("extract_brainlm")
-    array_range = f"4-{n_splits - 1}"
+    # array_range = f"0-{n_splits - 1}"
+    array_range = "0-5"
 
     sizes = ["111M", "650M"] if model_size == "all" else [model_size]
     preps = ["brainlm", "brainlm_z", "gigaconnectome", "gigaconnectome_z"] if preprocessing == "all" else [preprocessing]

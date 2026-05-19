@@ -48,11 +48,15 @@ def run_baseline_experiment(input_dir, output_dir):
         ts_flatten, labels, output_dir, 'timeseries',
         pca_components=EVALUATION_PCA_COMPONENTS,
     )
-
+    print("Running baseline: dummy classifier")
+    baseline_pipeline(
+        ts_flatten, labels, output_dir, 'dummy',
+        pca_components=EVALUATION_PCA_COMPONENTS,
+    )
     # Connectivity -> no PCA
     print("Running baseline: connectivity")
     baseline_pipeline(
-        fc, labels, output_dir, 'connectivity', run_dummy=True
+        fc, labels, output_dir, 'connectivity'
     )
 
 
