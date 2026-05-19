@@ -85,6 +85,7 @@ def _load_baseline_results(input_dirs: list[Path]) -> pd.DataFrame:
                 }
 
                 if is_classification:
+                    record['precision'] = row['test_precision']
                     record['accuracy'] = row['test_acc']
                     record['auc'] = row['test_auc']
                     record['f1'] = row['test_f1']
@@ -161,6 +162,7 @@ def _load_foundation_results(input_dirs: list[Path]) -> pd.DataFrame:
                     record['accuracy'] = row['test_acc']
                     record['auc'] = row['test_auc']
                     record['f1'] = row['test_f1']
+                    record['precision'] = row['test_precision']
                     record['task_type'] = 'classification'
                 else:
                     record['rmse'] = -row['test_nrmse']
@@ -176,21 +178,28 @@ def _load_foundation_results(input_dirs: list[Path]) -> pd.DataFrame:
 def load_results(input_dirs: list[Path]) -> pd.DataFrame:
     """Load all result files from multiple directories into a single DataFrame.
 
-    Auto-detects format: if any directory contains *.split*.tsv files,
-    uses foundation model loader; otherwise uses baseline loader.
+    Auto-detects format per directory: directories with *.split*.tsv files use
+    the foundation model loader; others use the baseline loader.
     """
-    # Check if any directory has split files
-    has_split_files = False
+    baseline_dirs = []
+    foundation_dirs = []
+
     for d in input_dirs:
         d = Path(d).resolve()
         if d.exists() and list(d.glob('*.split*.tsv')):
-            has_split_files = True
-            break
+            foundation_dirs.append(d)
+        else:
+            baseline_dirs.append(d)
 
-    if has_split_files:
-        return _load_foundation_results(input_dirs)
-    else:
-        return _load_baseline_results(input_dirs)
+    dfs = []
+    if baseline_dirs:
+        dfs.append(_load_baseline_results(baseline_dirs))
+    if foundation_dirs:
+        dfs.append(_load_foundation_results(foundation_dirs))
+
+    if not dfs:
+        return pd.DataFrame()
+    return pd.concat(dfs, ignore_index=True)
 
 
 def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFrame:
@@ -208,7 +217,7 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFram
         }
 
         if group['task_type'].iloc[0] == 'classification':
-            for metric in ['accuracy', 'auc', 'f1']:
+            for metric in ['accuracy', 'auc', 'f1', 'precision']:
                 mean = group[metric].mean()
                 # report confience interval instead of SD as these
                 # splits are autocorrelated
@@ -231,7 +240,7 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFram
     if output_dir:
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        clf_cols = ['Foundation Model', 'Atlas', 'Variation', 'Feature', 'Target', 'Classifier', 'ACCURACY', 'AUC', 'F1']
+        clf_cols = ['Foundation Model', 'Atlas', 'Variation', 'Feature', 'Target', 'Classifier', 'ACCURACY', 'AUC', 'F1', 'PRECISION']
         reg_cols = ['Foundation Model', 'Atlas', 'Variation', 'Feature', 'Target', 'Classifier', 'RMSE', 'MAE', 'R²']
 
         clf_df = summary_df[summary_df['ACCURACY'].notna()][

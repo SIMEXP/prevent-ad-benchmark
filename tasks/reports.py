@@ -24,7 +24,7 @@ INPUT_DIRS = {
 }
 @invoke.task(
     help={
-        "experiment": "all, baseline, brainharmonix, brainlm",
+        "experiment": "all, baselines, brainharmonix, brainlm",
         "output-dir": "Directory to save summary table (default: outputs/reports/)",
     }
 )
