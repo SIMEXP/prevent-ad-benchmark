@@ -1,7 +1,7 @@
 defaults:
   account: rrg-pbellec
   time: "0:10:00"
-  mem: "8G"
+  mem: "24G"
   cpus_per_task: 4
   gres: "gpu:1"
 

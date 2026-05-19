@@ -90,7 +90,7 @@ Classification vs regression is auto-detected from label type (string -> classif
 
 | Classification | Regression |
 |----------------|------------|
-| Accuracy, AUC, F1 | RMSE, MAE, R² |
+| Accuracy, AUC, F1, Precision | RMSE, MAE, R² |
 
 Results are reported as mean with 95% confidence interval (2.5th–97.5th percentile) across splits.
 
@@ -249,3 +249,7 @@ overrides:
 ```
 
 Submit tasks generate SLURM scripts in `scripts/` and submit job arrays (one job per split).
+
+## Disclaimer
+
+This project uses AI-assisted tools (Claude Code) for software development only. No AI-generated content was used in data processing, analysis, or scientific results.
