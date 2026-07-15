@@ -16,7 +16,6 @@ from preventad_benchmark.evaluation.targets import load_prediction_targets
 from preventad_benchmark.config import (
     BRAINLM_COORD_DATASET,
     BRAINLM_COORD_FILE,
-    EVALUATION_TARGETS,
     EXAMPLE_SUBJECT_MNI,
     PHENOTYPE_SEXAGE,
     DENOISE_STRATEGY_NAME,
