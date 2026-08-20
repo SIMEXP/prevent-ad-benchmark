@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 
 import invoke
+import gdown
 from nilearn.datasets import fetch_atlas_schaefer_2018
 
 from preventad_benchmark.dataset.brainlm import convert_fMRIvols_to_A424, convert_to_brainlm_arrow_datasets
@@ -22,25 +23,30 @@ DEFAULT_SOURCE_DIR = Path("data/source/dataset-preventad_version-8.1internal_pip
 DEFAULT_INTERIM_DIR = Path("data/interim")
 DEFAULT_PROCESSED_DIR = Path("data/processed")
 DEFAULT_RESOURCE_DIR = Path("resource")
-
+BRAINHARMONIX_URL = "https://drive.google.com/drive/folders/12MkUAOcegU60YVlK8u8_Owmgk4eQVheB"
 
 @invoke.task(
     help={
-        "local-dir": "Directory to download models to (default: ./models/brainlm)",
+        "local-dir": "Directory to download models to (default: ./models)",
     }
 )
-def models(c, local_dir="./models/brainlm"):
-    """Download BrainLM pre-trained models from HuggingFace.
+def models(c, local_dir="./models"):
+    """Download models from hard coded urls.
 
-    Downloads the 111M and 650M parameter ViT-MAE models.
+    Downloads BrainLM pre-trained models from HuggingFace and BrainHarmonix from google drive.
 
     Example:
         inv prepare.models
-        inv prepare.models --local-dir ./my-models/brainlm
+        inv prepare.models --local-dir ./my-models
     """
     c.run("HF_HUB_ENABLE_HF_TRANSFER=1")
-    c.run(f"huggingface-cli download vandijklab/brainlm --local-dir {local_dir}")
-
+    c.run(f"huggingface-cli download vandijklab/brainlm --local-dir {local_dir}/brainlm")
+    gdown.download_folder(
+        url=BRAINHARMONIX_URL,
+        output=f"{local_dir}/brain-harmonix",
+        quiet=False,
+        use_cookies=False,
+    )
 
 @invoke.task(
     help={
