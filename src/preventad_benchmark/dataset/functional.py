@@ -34,7 +34,7 @@ def denoise_dataset(sourcedata_dir, processed_dir, standarsization=True):
     Mask: generic MNI152 whole brain mask.
     """
     standardize_opt = "zscore_sample" if standarsization == True else None
-    
+
     phenotype = pd.read_csv(phenotype_mapper['filepath'], index_col=phenotype_mapper['index_col'], sep='\t')
     func_paths = []
     for idx in phenotype.index:
@@ -63,7 +63,7 @@ def denoise_dataset(sourcedata_dir, processed_dir, standarsization=True):
     Path(f"{processed_dir}").mkdir(exist_ok=True, parents=True)
     masker = NiftiMasker(
         mask_img=mni_mask,
-        standardize=standarsization,
+        standardize=standardize_opt,
         smoothing_fwhm=None,
         verbose=0
     ).fit()
