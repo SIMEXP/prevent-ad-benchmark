@@ -48,7 +48,7 @@ def preprocess_t1_images(t1_source_dir, t1_output_dir):
             skipped_count += 1
             continue
 
-        t1_masker = NiftiMasker(mask_img=t1_mask_files[0], zscore_sample=None).fit()
+        t1_masker = NiftiMasker(mask_img=t1_mask_files[0], standardize=None).fit()
         t1_img_flat = t1_masker.transform(t1_files[0])
         img = t1_masker.inverse_transform(t1_img_flat).dataobj[:, :, :]
 

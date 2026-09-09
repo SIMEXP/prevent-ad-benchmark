@@ -33,6 +33,8 @@ def denoise_dataset(sourcedata_dir, processed_dir, standarsization=True):
     standardization: z score per run
     Mask: generic MNI152 whole brain mask.
     """
+    standardize_opt = "zscore_sample" if standarsization == True else None
+    
     phenotype = pd.read_csv(phenotype_mapper['filepath'], index_col=phenotype_mapper['index_col'], sep='\t')
     func_paths = []
     for idx in phenotype.index:
@@ -57,7 +59,7 @@ def denoise_dataset(sourcedata_dir, processed_dir, standarsization=True):
     mni_mask = datasets.fetch_icbm152_2009()['mask']
     mni_mask = resample_atlas(mni_mask, os.environ["SLURM_TMPDIR"])
     print(f"Using MNI mask at {mni_mask}")
-
+    
     Path(f"{processed_dir}").mkdir(exist_ok=True, parents=True)
     masker = NiftiMasker(
         mask_img=mni_mask,
