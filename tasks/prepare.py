@@ -112,7 +112,8 @@ def fmri(c, source_dir=None, output_dir=None, zscore=True):
         output_dir = Path(output_dir) if output_dir else DEFAULT_INTERIM_DIR / "dataset-preventad.fmri.zscored"
     else:
         output_dir = Path(output_dir) if output_dir else DEFAULT_INTERIM_DIR / "dataset-preventad.fmri.NoZscore"
-
+        zscore = None
+        
     denoise_dataset(source_dir, output_dir, standarsization=zscore)
 
 
