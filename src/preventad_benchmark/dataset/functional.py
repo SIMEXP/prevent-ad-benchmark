@@ -81,11 +81,11 @@ def extract_timeseries_from_nifti(source_denoised_dir, output_ts_dir, atlas="sch
         raise ValueError(f"We only support two atlases: schaefer400, a424. Your input is {atlas}.")
     elif atlas == "schaefer400":
         atlas_path, _ = fetch_and_prepare_schaefer400_atlas()
-        atlas_labels = (np.arange(BRAINHARMONIX_SCHAEFER_ROIS) + 1).tolist()
+        atlas_labels = [str(i) for i in (np.arange(BRAINHARMONIX_SCHAEFER_ROIS) + 1).tolist()]
         seg_name = BRAINHARMONIX_SEG_NAME
     else:
         atlas_path = str(_preventad_config["atlas_file"])
-        atlas_labels = (np.arange(A424_NPARCELS)+1).tolist()
+        atlas_labels = [str(i) for i in (np.arange(A424_NPARCELS)+1).tolist()]
         seg_name = str(_preventad_config["seg_name"])
 
     # Fetch MNI mask
