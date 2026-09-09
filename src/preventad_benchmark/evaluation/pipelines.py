@@ -90,7 +90,8 @@ def svm_pipeline(x, y, n_splits=EVALUATION_N_SPLITS, pca_components=None):
         scoring ="regression"
 
     cv = StratifiedShuffleSplit(n_splits=n_splits, random_state=42)
-    strat_labels = _stratify_labels(y, is_clf)
+    # if it's regression, convert target to fit in 20 percentile bins as labels for stratification
+    strat_labels = _stratify_labels(y, is_clf)  
     return cross_validate(pipe, x, y, cv=cv.split(x, strat_labels), scoring=SCORING[scoring], n_jobs=N_JOBS)
 
 
@@ -116,6 +117,7 @@ def linear_pipeline(x, y, n_splits=EVALUATION_N_SPLITS, pca_components=None):
     cv = StratifiedShuffleSplit(n_splits=n_splits, random_state=42)
     strat_labels = _stratify_labels(y, is_clf)
     return cross_validate(pipe, x, y, cv=cv.split(x, strat_labels), scoring=SCORING[scoring], n_jobs=N_JOBS)
+
 
 def dummy_pipeline(x, y, n_splits=EVALUATION_N_SPLITS, pca_components=None):
     """Run dummy cross-validation (DummyClassifier for classification, DummyRegressor for regression).

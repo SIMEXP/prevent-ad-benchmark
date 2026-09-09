@@ -1,6 +1,8 @@
 import re
 from pathlib import Path
 import pandas as pd
+import scipy.stats as stats
+import numpy as np
 
 
 # Feature display names
@@ -201,6 +203,20 @@ def load_results(input_dirs: list[Path]) -> pd.DataFrame:
         return pd.DataFrame()
     return pd.concat(dfs, ignore_index=True)
 
+def _cal_mean_ci95(values):
+    mean = values.mean()
+    sd = values.std(ddof=1)
+    n = len(values)
+    # report 95% confience interval instead of SD as these
+    # splits are autocorrelates
+    ci_lower, ci_upper = stats.t.interval(
+        0.95, 
+        df=n-1, 
+        loc=mean, 
+        scale=sd / np.sqrt(n)
+    )
+    return mean, ci_lower, ci_upper
+
 
 def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFrame:
     """Create summary table with mean ± std for all metrics."""
@@ -218,19 +234,11 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFram
 
         if group['task_type'].iloc[0] == 'classification':
             for metric in ['accuracy', 'auc', 'f1', 'precision']:
-                mean = group[metric].mean()
-                # report confience interval instead of SD as these
-                # splits are autocorrelated
-                ci_lower = group[metric].quantile(0.025)
-                ci_upper = group[metric].quantile(0.975)
+                mean, ci_lower, ci_upper = _cal_mean_ci95(group[metric])
                 record[metric.upper()] = f'{mean:.3f} [{ci_lower:.3f} {ci_upper:.3f}]'
         else:
             for metric, col in [('RMSE', 'rmse'), ('MAE', 'mae'), ('R²', 'r2')]:
-                mean = group[col].mean()
-                # report confience interval instead of SD as these
-                # splits are autocorrelated
-                ci_lower = group[col].quantile(0.025)
-                ci_upper = group[col].quantile(0.975)
+                mean, ci_lower, ci_upper = _cal_mean_ci95(group[metric])
                 record[metric] = f'{mean:.3f} [{ci_lower:.3f} {ci_upper:.3f}]'
 
         summary_records.append(record)

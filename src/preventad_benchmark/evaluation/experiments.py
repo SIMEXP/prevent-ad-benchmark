@@ -63,6 +63,9 @@ def run_baseline_experiment(input_dir, output_dir):
 def run_foundation_model_experiment(train_features, train_labels, test_features, test_labels, prefix, pca_components=None):
     """Fit SVM + linear on test-set embeddings and score.
 
+    Due to resource constraint, this function runs one CV split. 
+    Summary of these CV slpits are done at a late stage. 
+
     Args:
         features: (N, D) array of feature vectors.
         labels: dict mapping target name -> label array (from load_prediction_targets).

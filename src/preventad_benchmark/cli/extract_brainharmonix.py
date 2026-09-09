@@ -231,7 +231,7 @@ Examples:
     with open(split_path) as f:
         split_ids = json.load(f)
 
-
+    # training set
     train_ids = set(split_ids[args.split_index]["train"])
     train_ds = arrow_ds.filter(lambda x: x["participant_id"] in train_ids)
     print(f"Training set: {len(train_ds)} samples (from {len(arrow_ds)} total)")

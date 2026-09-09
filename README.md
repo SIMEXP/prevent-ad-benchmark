@@ -184,12 +184,18 @@ Run tasks with `uv run inv <namespace>.<task>`:
 uv run inv prepare.models
 uv run inv prepare.atlas
 uv run inv prepare.t1
-uv run inv prepare.fmri
-uv run inv prepare.timeseries
+uv run inv prepare.fmri -z
+uv run inv prepare.fmri --no-zscore
+uv run inv prepare.timeseries -w gigaconnectome -a schaefer400 -f data/interim/dataset-preventad.fmri.zscored
+uv run inv prepare.timeseries -w gigaconnectome -a schaefer400 -f data/interim/dataset-preventad.fmri.NoZscore
+uv run inv prepare.timeseries -w gigaconnectome -a a424 -f data/interim/dataset-preventad.fmri.zscored
+uv run inv prepare.timeseries -w brainlm -a a424 -f data/interim/dataset-preventad.fmri.zscored
+uv run inv prepare.timeseries -w gigaconnectome -a a424 -f data/interim/dataset-preventad.fmri.NoZscore
+uv run inv prepare.timeseries -w brainlm -a a424 -f data/interim/dataset-preventad.fmri.NoZscore
 uv run inv prepare.split
 
-# 2. Run evaluation (interactive, single split)
-uv run inv baseline.run
+# 2. Run evaluation in interactive session
+uv run inv baseline.run  # this will create the chance level results and the FC baseline
 uv run inv brainlm.evaluate
 uv run inv brainharmonix.evaluate
 
