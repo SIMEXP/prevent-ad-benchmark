@@ -70,7 +70,7 @@ def atlas(c, resource_dir=None):
 
     print("Fetching Schaefer 400 atlas (17 networks, 2mm resolution)...")
     atlas_data = fetch_atlas_schaefer_2018(n_rois=400, yeo_networks=17, resolution_mm=2)
-    resample_atlas(atlas_data.maps, "/tmp")
+    resample_atlas(atlas_data.maps, f"{resource_dir}/preventad")
 
 
 @invoke.task(
