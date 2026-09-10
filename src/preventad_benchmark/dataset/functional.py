@@ -13,10 +13,10 @@ from preventad_benchmark.config import (
     DENOISE_STRATEGY,
     DENOISE_STRATEGY_NAME,
 )
-from preventad_benchmark.dataset.utils import resample_atlas, fetch_and_prepare_schaefer400_atlas, load_phenotype
+from preventad_benchmark.dataset.utils import resample_atlas, load_phenotype
 
 
-from preventad_benchmark.config import A424_NPARCELS, BRAINHARMONIX_SEG_NAME, BRAINHARMONIX_SCHAEFER_ROIS, PHENOTYPE_SEXAGE
+from preventad_benchmark.config import A424_NPARCELS, BRAINHARMONIX_ATLAS_FILE, BRAINHARMONIX_SEG_NAME, BRAINHARMONIX_SCHAEFER_ROIS, PHENOTYPE_SEXAGE
 
 
 _preventad_config = BRAINLM_DATASET_CONFIGS["preventad"]
@@ -80,12 +80,12 @@ def extract_timeseries_from_nifti(source_denoised_dir, output_ts_dir, atlas="sch
     if atlas not in ["schaefer400", "a424"]:
         raise ValueError(f"We only support two atlases: schaefer400, a424. Your input is {atlas}.")
     elif atlas == "schaefer400":
-        atlas_path, _ = fetch_and_prepare_schaefer400_atlas()
-        atlas_labels = [str(i) for i in (np.arange(BRAINHARMONIX_SCHAEFER_ROIS) + 1).tolist()]
+        atlas_path = BRAINHARMONIX_ATLAS_FILE
+        atlas_labels = [str(i) for i in (np.arange(BRAINHARMONIX_SCHAEFER_ROIS + 1)).tolist()]
         seg_name = BRAINHARMONIX_SEG_NAME
     else:
         atlas_path = str(_preventad_config["atlas_file"])
-        atlas_labels = [str(i) for i in (np.arange(A424_NPARCELS)+1).tolist()]
+        atlas_labels = [str(i) for i in (np.arange(A424_NPARCELS) + 1).tolist()]
         seg_name = str(_preventad_config["seg_name"])
 
     # Fetch MNI mask
@@ -128,7 +128,9 @@ def extract_timeseries_from_nifti(source_denoised_dir, output_ts_dir, atlas="sch
         labels_img=atlas_path,
         labels=atlas_labels,
         mask_img=mni_mask,
+        standardize=None,
         verbose=0,
+        memory='nilearn_cache'
     ).fit()
 
     # Extract time series
@@ -138,6 +140,6 @@ def extract_timeseries_from_nifti(source_denoised_dir, output_ts_dir, atlas="sch
         desc="Extracting time series",
     ):
         seg_ts = atlas_masker.transform(nii_path)
-        seg_ts = pd.DataFrame(seg_ts, columns=[int(l) for l in atlas_masker.labels_])
+        seg_ts = pd.DataFrame(seg_ts, columns=list(atlas_masker.region_ids_.keys())[1:])
         seg_ts = seg_ts.reindex(columns=atlas_labels)
         seg_ts.to_csv(ts_path, sep="\t", na_rep="n/a", index=False)

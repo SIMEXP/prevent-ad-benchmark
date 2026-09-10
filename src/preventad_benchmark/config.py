@@ -126,7 +126,7 @@ BRAINHARMONIX_POS_EMBED_PATHS = {
     "gradient": "BrainHarmony/brainharmony_pos_embed/gradient_mapping_400.csv",
     "geo_harm": "BrainHarmony/brainharmony_pos_embed/schaefer400_roi_eigenmodes.csv",
 }
-
+BRAINHARMONIX_ATLAS_FILE = Path("resource/preventad/resample_Schaefer2018_400Parcels_17Networks_order_FSLMNI152_2mm.nii.gz")
 BRAINHARMONIX_SEG_NAME = "schaefer400"
 BRAINHARMONIX_SCHAEFER_ROIS = 400
 BRAINHARMONIX_T1_TARGET_SHAPE = (160, 192, 160)
