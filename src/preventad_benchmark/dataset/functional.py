@@ -127,7 +127,7 @@ def extract_timeseries_from_nifti(source_denoised_dir, output_ts_dir, atlas="sch
     # Setup masker for atlas
     atlas_masker = NiftiLabelsMasker(
         labels_img=atlas_path,
-        labels=atlas_labels,
+        # labels=atlas_labels,
         mask_img=mni_mask,
         standardize=None,
         verbose=0,
@@ -142,5 +142,5 @@ def extract_timeseries_from_nifti(source_denoised_dir, output_ts_dir, atlas="sch
     ):
         seg_ts = atlas_masker.transform(nii_path)
         seg_ts = pd.DataFrame(seg_ts, columns=atlas_masker.region_names_)
-        seg_ts = seg_ts.reindex(columns=atlas_labels)
+        # seg_ts = seg_ts.reindex(columns=atlas_labels)
         seg_ts.to_csv(ts_path, sep="\t", na_rep="n/a", index=False)
