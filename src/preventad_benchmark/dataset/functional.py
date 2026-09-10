@@ -82,7 +82,7 @@ def extract_timeseries_from_nifti(source_denoised_dir, output_ts_dir, atlas="sch
         raise ValueError(f"We only support two atlases: schaefer400, a424. Your input is {atlas}.")
     elif atlas == "schaefer400":
         atlas_path = BRAINHARMONIX_ATLAS_FILE
-        atlas_labels = [str(int(i)) for i in (np.arange(BRAINHARMONIX_SCHAEFER_ROIS + 1)).tolist()]
+        atlas_labels = [str(int(i)) for i in (np.arange(BRAINHARMONIX_SCHAEFER_ROIS) + 1).tolist()]
         seg_name = BRAINHARMONIX_SEG_NAME
     else:
         atlas_path = str(_preventad_config["atlas_file"])
