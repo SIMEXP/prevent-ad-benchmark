@@ -141,6 +141,14 @@ def extract_timeseries_from_nifti(source_denoised_dir, output_ts_dir, atlas="sch
         desc="Extracting time series",
     ):
         seg_ts = atlas_masker.transform(nii_path)
-        seg_ts = pd.DataFrame(seg_ts, columns=atlas_masker.region_names_)
+        if seg_ts.shape[-1] ==len(atlas_labels):
+            seg_ts = pd.DataFrame(seg_ts, columns=atlas_labels)
+        else:
+            labels = [atlas_labels[i] for i in atlas_masker.region_index_]
+            seg_ts = pd.DataFrame(seg_ts, columns=labels)
+            missings = set(atlas_labels) - set(labels)
+            for m in missings:
+                seg_ts[m] = np.nan
+            seg_ts = seg_ts.reindex(columns=atlas_labels)
         # seg_ts = seg_ts.reindex(columns=atlas_labels)
         seg_ts.to_csv(ts_path, sep="\t", na_rep="n/a", index=False)
