@@ -127,7 +127,7 @@ def extract_timeseries_from_nifti(source_denoised_dir, output_ts_dir, atlas="sch
     # Setup masker for atlas
     atlas_masker = NiftiLabelsMasker(
         labels_img=atlas_path,
-        # labels=atlas_labels,
+        labels=atlas_labels,
         mask_img=mni_mask,
         standardize=None,
         verbose=0,
