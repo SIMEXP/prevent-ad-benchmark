@@ -204,7 +204,7 @@ def _score_predictions(y_true, y_pred, is_clf):
             "test_acc": accuracy_score(y_true, y_pred),
             "test_auc": roc_auc_score(y_true, y_pred),
             "test_f1": f1_score(y_true, y_pred),
-            "test_precision": precision_score(y_true, y_pred),
+            "test_precision": precision_score(y_true, y_pred, zero_division=0),
         }
     return {
         "test_nrmse": -np.sqrt(mean_squared_error(y_true, y_pred)),
