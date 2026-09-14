@@ -174,14 +174,14 @@ def baseline_pipeline(features, labels, output_dir, prefix, pca_components=None)
                 pd.DataFrame(dummy_scores).to_csv(dummy_path, sep="\t")
             continue
 
-        # SVM pipeline
-        svm_path = output_dir / f"x-{prefix}_y-{target_name}_svm_prediction.tsv"
-        if svm_path.exists():
-            print(f"{svm_path} exists, skip")
-        else:
-            print(f"  Running SVM for {prefix} -> {target_name}...")
-            svm_scores = svm_pipeline(x, y, pca_components=pca_components)
-            pd.DataFrame(svm_scores).to_csv(svm_path, sep="\t")
+        # # SVM pipeline
+        # svm_path = output_dir / f"x-{prefix}_y-{target_name}_svm_prediction.tsv"
+        # if svm_path.exists():
+        #     print(f"{svm_path} exists, skip")
+        # else:
+        #     print(f"  Running SVM for {prefix} -> {target_name}...")
+        #     svm_scores = svm_pipeline(x, y, pca_components=pca_components)
+        #     pd.DataFrame(svm_scores).to_csv(svm_path, sep="\t")
 
         # Linear pipeline
         linear_path = output_dir / f"x-{prefix}_y-{target_name}_linear_prediction.tsv"
