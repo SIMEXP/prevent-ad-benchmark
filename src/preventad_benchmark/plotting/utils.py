@@ -237,10 +237,10 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFram
                 mean, ci_lower, ci_upper = _cal_mean_ci95(group[metric])
                 record[metric.upper()] = f'{mean:.3f} [{ci_lower:.3f} {ci_upper:.3f}]'
         else:
-            for metric, col in [('RMSE', 'rmse'), ('MAE', 'mae'), ('R²', 'r2')]:
-                mean, ci_lower, ci_upper = _cal_mean_ci95(group[metric])
-                record[metric] = f'{mean:.3f} [{ci_lower:.3f} {ci_upper:.3f}]'
-
+            # for metric, col in [('RMSE', 'rmse'), ('MAE', 'mae'), ('R²', 'r2')]:
+            #     mean, ci_lower, ci_upper = _cal_mean_ci95(group[col])
+            #     record[metric] = f'{mean:.3f} [{ci_lower:.3f} {ci_upper:.3f}]'
+            pass
         summary_records.append(record)
 
     summary_df = pd.DataFrame(summary_records)
