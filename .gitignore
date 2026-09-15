@@ -1,9 +1,9 @@
-data/
+/data/
 .direnv/
-models/
-outputs/
-logs/
-scripts/
+/models/
+/outputs/
+/logs/
+/scripts/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

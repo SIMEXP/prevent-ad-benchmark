@@ -10,7 +10,6 @@ import json
 from pathlib import Path
 
 from preventad_benchmark.models.brainlm_mae.modeling_vit_mae_with_padding import ViTMAEForPreTraining
-from preventad_benchmark.models.brainlm_mae.replace_vitmae_attn_with_flash_attn import replace_vitmae_attn_with_flash_attn
 from transformers import ViTMAEConfig, Trainer, TrainingArguments
 
 from datasets import load_from_disk, DatasetDict
