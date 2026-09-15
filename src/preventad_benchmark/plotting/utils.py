@@ -253,10 +253,10 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFram
         clf_cols = ['Foundation Model', 'Atlas', 'Variation', 'Feature', 'Target', 'Classifier', 'ACCURACY', 'AUC', 'F1', 'PRECISION']
         reg_cols = ['Foundation Model', 'Atlas', 'Variation', 'Feature', 'Target', 'Classifier', 'RMSE', 'MAE', 'R²']
 
-        clf_df = summary_df[summary_df['accuracy'].notna()][
+        clf_df = summary_df[summary_df['ACCURACY'].notna()][
             [c for c in clf_cols if c in summary_df.columns]
         ]
-        reg_df = summary_df[summary_df['rmse'].notna()][
+        reg_df = summary_df[summary_df['RMSE'].notna()][
             [c for c in reg_cols if c in summary_df.columns]
         ]
 
