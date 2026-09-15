@@ -8,7 +8,7 @@ import torch.nn.functional as F
 
 COORD_DS_PATH = Path("resource/brainlm/atlases/brainregion_coordinates.arrow")
 
-def timeseires_to_images(examples, image_column_name, timeseries_length, axis_index="Y", max_val_to_scale=None):
+def timeseires_to_images(examples, image_column_name, timeseries_length, axis_index="Y", max_val_to_scale=None, norm_params=None):
     """
     Preprocess timeseires as if they are pixel value of images with three
     colour channels, and order the timeseires by an given order along a
@@ -22,11 +22,21 @@ def timeseires_to_images(examples, image_column_name, timeseries_length, axis_in
         axis_index (str): default "Y". It's exposed as I was unsure if brainlm used X or Y (conflicts between comments and variable name in the original source code.)
         max_val_to_scale (float, None):an weird scaling value (5.6430855) from
             the original code. Default to None.
+        norm_params (dict, None): per-ROI 'median' and 'iqr' arrays (as
+            returned by `compute_normalization_params`) used to robust-scale
+            non-zscored data: (x - median) / iqr. Applied before reordering
+            by coordinate, so the ROI order must match the original
+            `image_column_name` columns. Default to None (no normalization).
 
     Notes:
         - https://huggingface.co/docs/datasets/v3.6.0/en/package_reference/main_classes#datasets.Dataset.set_transform
     """
     reorder_ids_by_coord = order_parcel_by_axis(COORD_DS_PATH, axis_index)
+    median = iqr = None
+    if norm_params is not None:
+        median = torch.tensor(norm_params["median"], dtype=torch.float32).unsqueeze(1)
+        iqr = torch.tensor(norm_params["iqr"], dtype=torch.float32).unsqueeze(1)
+
     fmri_images_list, labels = [], []
     for idx in range(len(examples[image_column_name])):
         signal_window = torch.tensor(
@@ -39,6 +49,9 @@ def timeseires_to_images(examples, image_column_name, timeseries_length, axis_in
         end_idx = start_idx + timeseries_length
         signal_window = signal_window[start_idx: end_idx, :]
         signal_window = torch.movedim(signal_window, 0, 1)  # --> [num_parcel, timeseries_length]
+
+        if norm_params is not None:
+            signal_window = (signal_window - median) / iqr
 
         # reorder voxels according to coordinate
         signal_window = signal_window[reorder_ids_by_coord, :]
