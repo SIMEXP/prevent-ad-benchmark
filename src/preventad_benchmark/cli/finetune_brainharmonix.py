@@ -56,6 +56,7 @@ from preventad_benchmark.models.brainharmonix.fintuning_engines import (
     evaluate_supervised,
 )
 from preventad_benchmark.models.brainharmonix.utils import save_checkpoint
+from preventad_benchmark.plotting.learning_curves import plot_single_run_curve
 
 # Default paths for CLI argument defaults
 DEFAULT_GRADIENT_PATH = str(BRAINHARMONIX_POS_EMBED_PATHS["gradient"])
@@ -402,6 +403,9 @@ Examples:
 
     with open(args.output_dir / "config.json", "w") as f:
         json.dump(config, f, indent=2)
+
+    title = f"BrainHarmonix finetuning — {args.task}, split {args.split_index}"
+    plot_single_run_curve(metrics, args.output_dir / "learning_curve.png", title=title)
 
     print(f"\nTraining complete! Best {metric_key}: {best_loss:.4f}")
     print(f"Checkpoints saved to {args.output_dir}")

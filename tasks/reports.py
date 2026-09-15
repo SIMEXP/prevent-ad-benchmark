@@ -36,8 +36,7 @@ INPUT_DIRS = {
 def plot_learning_curves(c, model="combined", output_dir=None):
     """Plot finetuning learning curves from saved trainer state files.
 
-    BrainHarmony: train + val loss per epoch (from config.json).
-    BrainLM: training loss per epoch only (val loss was not logged).
+    Both BrainHarmony and BrainLM report train + val loss per epoch (from config.json).
 
     Examples::
 

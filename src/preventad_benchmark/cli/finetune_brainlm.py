@@ -19,6 +19,7 @@ import torch
 from preventad_benchmark.models.brainlm_mae.utils import timeseires_to_images, collate_fn
 from preventad_benchmark.models.brainlm_mae.metrics import MetricsCalculator
 from preventad_benchmark.dataset.utils import compute_normalization_params
+from preventad_benchmark.plotting.learning_curves import plot_single_run_curve
 import argparse
 try:
     from preventad_benchmark.models.brainlm_mae.replace_vitmae_attn_with_flash_attn import replace_vitmae_attn_with_flash_attn
@@ -87,12 +88,26 @@ def main():
         default=False,
         help="Compute and apply dataset-level normalization (for non-zscored data)",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for the train/val split and training (default: 42)",
+    )
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=1e-4,
+        help="Learning rate (default: 1e-4)",
+    )
     args = parser.parse_args()
     inputs_path = args.dataset
     outputs_path = args.output_dir
     image_column_name = args.image_column_name
     model_params = args.model_params
     model_path = args.model_path or f"./models/brainlm/vitmae_{model_params}"
+
+    torch.manual_seed(args.seed)
 
     fmri_ds = load_from_disk(inputs_path)
 
@@ -131,7 +146,8 @@ def main():
     # 80/20 train/val split within the training set
     train_val = train_ds.train_test_split(
         test_size=0.2,
-        stratify_by_column=sex_col
+        stratify_by_column=sex_col,
+        seed=args.seed,
     )
     train_test_dataset = DatasetDict({
         'train': train_val['train'],
@@ -186,12 +202,14 @@ def main():
         output_dir=outputs_path,
         remove_unused_columns=False,
         include_for_metrics=['inputs'],
-        logging_steps=1,
+        eval_strategy="epoch",
+        logging_strategy="epoch",
         num_train_epochs=25,
-        learning_rate=1e-05,
+        learning_rate=args.lr,
         weight_decay=0.01,
         per_device_eval_batch_size=4,
         per_device_train_batch_size=4,
+        seed=args.seed,
     )
     # Initialize our trainer
     trainer = Trainer(
@@ -213,6 +231,49 @@ def main():
     metrics = trainer.evaluate()
     trainer.log_metrics("eval", metrics)
     trainer.save_metrics("eval", metrics)
+
+    # Build a per-epoch {epoch, train_loss, val_loss} list and a config.json in the
+    # same shape BrainHarmonix's finetuning script writes, so both models' learning
+    # curves can be loaded and plotted with the same code (see plotting/learning_curves.py).
+    per_epoch = {}
+    for entry in trainer.state.log_history:
+        epoch = entry.get("epoch")
+        if epoch is None:
+            continue
+        record = per_epoch.setdefault(int(round(epoch)), {})
+        if "loss" in entry:
+            record["train_loss"] = entry["loss"]
+        if "eval_loss" in entry:
+            record["val_loss"] = entry["eval_loss"]
+
+    epoch_metrics = [
+        {"epoch": epoch, **record}
+        for epoch, record in sorted(per_epoch.items())
+        if "train_loss" in record and "val_loss" in record
+    ]
+    best_val_loss = min(
+        (record["val_loss"] for record in epoch_metrics),
+        default=metrics.get("eval_loss"),
+    )
+
+    finetune_config = {
+        "task": "self-supervised",
+        "target": None,
+        "best_metric_value": best_val_loss,
+        "metric_key": "loss",
+        "epochs": training_args.num_train_epochs,
+        "lr": training_args.learning_rate,
+        "batch_size": training_args.per_device_train_batch_size,
+        "metrics": epoch_metrics,
+    }
+    with open(Path(outputs_path) / "config.json", "w") as f:
+        json.dump(finetune_config, f, indent=2)
+
+    plot_single_run_curve(
+        epoch_metrics,
+        Path(outputs_path) / "learning_curve.png",
+        title=f"BrainLM finetuning — split {args.split_index}",
+    )
 
 
 if __name__ == "__main__":

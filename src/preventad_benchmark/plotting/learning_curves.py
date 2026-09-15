@@ -4,8 +4,9 @@ import json
 import re
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")  # headless-safe: called from training scripts on SLURM compute nodes
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 
 
@@ -60,21 +61,19 @@ def load_brainharmony_curves(finetune_dir: Path) -> pd.DataFrame:
 
 
 def load_brainlm_curves(finetune_dir: Path) -> pd.DataFrame:
-    """Load per-epoch training loss for all BrainLM splits and conditions.
+    """Load per-epoch train/val loss for all BrainLM splits and conditions.
 
     Expected layout::
 
         finetune_dir/
           {condition}/           e.g. "zscore_brainlm.650M.selfsupervised"
             split{N}/
-              trainer_state.json ← log_history with per-step loss
-
-    Steps are averaged within each integer epoch so the result aligns with
-    BrainHarmony's epoch-level granularity.
+              config.json   ← has "metrics": [{epoch, train_loss, val_loss}, ...]
+              (written from trainer_state.json's log_history by finetune_brainlm.py,
+              in the same shape as BrainHarmonix's config.json)
 
     Returns a long-form DataFrame with columns:
-        condition, split, epoch, train_loss
-    (no val_loss — validation was not logged during BrainLM training)
+        condition, split, epoch, train_loss, val_loss
     """
     records = []
     finetune_dir = Path(finetune_dir)
@@ -90,47 +89,26 @@ def load_brainlm_curves(finetune_dir: Path) -> pd.DataFrame:
         ):
             if not split_dir.is_dir():
                 continue
-            state_file = split_dir / "trainer_state.json"
-            if not state_file.exists():
-                continue
-
-            with open(state_file) as f:
-                state = json.load(f)
-
-            # Extract split index from directory name "split{N}"
             m = re.match(r"split(\d+)$", split_dir.name)
             if m is None:
                 continue
             split_idx = int(m.group(1))
 
-            # Collect per-step training losses (skip the final summary entry)
-            step_rows = [
-                e for e in state["log_history"]
-                if "loss" in e and "eval_loss" not in e and "train_loss" not in e
-            ]
-
-            if not step_rows:
+            config_file = split_dir / "config.json"
+            if not config_file.exists():
                 continue
 
-            # Average loss within each integer epoch
-            df_steps = pd.DataFrame(step_rows)[["epoch", "loss"]]
-            df_steps["epoch_int"] = df_steps["epoch"].apply(
-                lambda e: int(np.ceil(e))  # ceil so epoch 0.01 → epoch 1
-            )
-            df_epoch = (
-                df_steps.groupby("epoch_int")["loss"]
-                .mean()
-                .reset_index()
-                .rename(columns={"epoch_int": "epoch", "loss": "train_loss"})
-            )
+            with open(config_file) as f:
+                cfg = json.load(f)
 
-            for _, row in df_epoch.iterrows():
+            for entry in cfg.get("metrics", []):
                 records.append(
                     {
                         "condition": condition,
                         "split": split_idx,
-                        "epoch": int(row["epoch"]),
-                        "train_loss": row["train_loss"],
+                        "epoch": entry["epoch"],
+                        "train_loss": entry["train_loss"],
+                        "val_loss": entry["val_loss"],
                     }
                 )
 
@@ -171,6 +149,44 @@ def _plot_mean_band(ax, df, x_col, y_col, label, color, linestyle="-"):
 # ---------------------------------------------------------------------------
 # Public plotting functions
 # ---------------------------------------------------------------------------
+
+def plot_single_run_curve(
+    metrics: list[dict],
+    output_path: Path,
+    title: str = "Learning curve",
+    figsize: tuple = (6, 4),
+) -> plt.Figure:
+    """Plot train/val loss vs epoch for a single fine-tuning run.
+
+    Called directly from finetune_brainlm.py / finetune_brainharmonix.py right
+    after training, using the same per-epoch metrics list that gets written to
+    that run's config.json — so the plot always matches what's on disk.
+
+    Args:
+        metrics: list of {"epoch", "train_loss", "val_loss", ...} dicts.
+        output_path: where to save the PNG.
+        title: plot title, e.g. naming the condition/split.
+    """
+    df = pd.DataFrame(metrics)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.plot(df["epoch"], df["train_loss"], label="Train loss", color="#1f77b4")
+    ax.plot(df["epoch"], df["val_loss"], label="Val loss", color="#ff7f0e", linestyle="--")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss")
+    ax.set_title(title, fontsize=10)
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved → {output_path}")
+
+    return fig
+
 
 def plot_brainharmony_curves(
     finetune_dir: Path,
@@ -222,9 +238,9 @@ def plot_brainlm_curves(
     output_path: Path | None = None,
     figsize: tuple = (12, 4),
 ) -> plt.Figure:
-    """Plot BrainLM training loss curves (no val loss available).
+    """Plot BrainLM train + val loss curves.
 
-    Two panels: z-score vs no-z-score, two lines each (atlas variant).
+    Two panels: z-score vs no-z-score, one train/val line pair per atlas variant.
     Shaded band = 95 % CI across splits.
     """
     df = load_brainlm_curves(finetune_dir)
@@ -248,16 +264,12 @@ def plot_brainlm_curves(
         for color, cond in zip(palette, sorted(conds)):
             sub = df[df["condition"] == cond]
             label = _BRAINLM_LABELS.get(cond, cond).split("·")[-1].strip()
-            _plot_mean_band(ax, sub, "epoch", "train_loss", label=label, color=color)
+            _plot_mean_band(ax, sub, "epoch", "train_loss", label=f"{label} (train)", color=color)
+            _plot_mean_band(ax, sub, "epoch", "val_loss", label=f"{label} (val)", color=color, linestyle="--")
         ax.set_title(f"BrainLM — {panel_name}", fontsize=10)
         ax.set_xlabel("Epoch")
         ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
-        ax.text(
-            0.98, 0.97, "Training loss only\n(no val loss logged)",
-            transform=ax.transAxes, fontsize=7, ha="right", va="top",
-            color="gray", style="italic",
-        )
 
     axes[0].set_ylabel("Loss")
     fig.suptitle("BrainLM — finetuning learning curves", fontsize=12, y=1.02)
@@ -321,16 +333,12 @@ def plot_combined_curves(
         for color, cond in zip(bl_palette, conds):
             sub = bl_df[bl_df["condition"] == cond]
             label = _BRAINLM_LABELS.get(cond, cond).split("·")[-1].strip()
-            _plot_mean_band(ax, sub, "epoch", "train_loss", label, color)
+            _plot_mean_band(ax, sub, "epoch", "train_loss", f"{label} (train)", color)
+            _plot_mean_band(ax, sub, "epoch", "val_loss", f"{label} (val)", color, linestyle="--")
         ax.set_title(f"BrainLM — {panel_name}", fontsize=10)
         ax.set_xlabel("Epoch")
         ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
-        ax.text(
-            0.98, 0.97, "Training loss only",
-            transform=ax.transAxes, fontsize=7, ha="right", va="top",
-            color="gray", style="italic",
-        )
         if col == 0:
             ax.set_ylabel("Loss")
 

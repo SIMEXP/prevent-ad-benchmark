@@ -70,7 +70,7 @@ def finetune(
     input_path = str(cfg["input_path"])
     image_column = cfg["image_column"]
     output_suffix = cfg["output_suffix"]
-    output_path = str(DEFAULT_OUTPUT_DIR / f"finetune/brainlm/{output_suffix}.{model_params}.selfsupervised/{split_index}")
+    output_path = str(DEFAULT_OUTPUT_DIR / f"finetune/brainlm/{output_suffix}.{model_params}.selfsupervised/split{split_index}")
 
     normalize_flag = " --normalize" if cfg.get("normalize") else ""
     cmd = (
