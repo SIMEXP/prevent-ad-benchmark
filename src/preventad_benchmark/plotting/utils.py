@@ -68,6 +68,7 @@ def _load_baseline_results(input_dirs: list[Path]) -> pd.DataFrame:
         for filepath in files:
             parsed = parse_filename(filepath)
             if parsed is None:
+                print("couldn't parse {filepath}")
                 continue
 
             df = pd.read_csv(filepath, sep='\t', index_col=0)
@@ -210,8 +211,6 @@ def _cal_mean_ci95(values):
     mean = values.mean()
     sd = values.std(ddof=1)
     n = len(values)
-    # report 95% confience interval instead of SD as these
-    # splits are autocorrelates
     ci_lower, ci_upper = stats.t.interval(
         0.95, 
         df=n-1, 
@@ -222,9 +221,9 @@ def _cal_mean_ci95(values):
 
 
 def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFrame:
-    """Create summary table with mean ± std for all metrics."""
+    """Create summary table with mean and CI95% for all metrics."""
     summary_records = []
-
+    
     for (foundation_model, variation, feature, target, classifier, atlas), group in df.groupby(['foundation_model', 'variation', 'feature', 'target', 'classifier', 'atlas']):
         record = {
             'Foundation Model': foundation_model,
@@ -243,7 +242,7 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFram
             for metric, col in [('RMSE', 'rmse'), ('MAE', 'mae'), ('R²', 'r2')]:
                 mean, ci_lower, ci_upper = _cal_mean_ci95(group[col])
                 record[metric] = f'{mean:.3f} [{ci_lower:.3f} {ci_upper:.3f}]'
-
+        summary_records.append(record)
 
     summary_df = pd.DataFrame(summary_records)
 
