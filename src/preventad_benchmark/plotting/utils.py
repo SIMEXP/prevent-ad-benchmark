@@ -193,6 +193,8 @@ def load_results(input_dirs: list[Path]) -> pd.DataFrame:
         else:
             baseline_dirs.append(d)
 
+    print(f"Found {len(baseline_dirs)} basline and {len(foundation_dirs)} foundation model results")
+
     dfs = []
     if baseline_dirs:
         dfs.append(_load_baseline_results(baseline_dirs))
@@ -202,6 +204,7 @@ def load_results(input_dirs: list[Path]) -> pd.DataFrame:
     if not dfs:
         return pd.DataFrame()
     return pd.concat(dfs, ignore_index=True)
+
 
 def _cal_mean_ci95(values):
     mean = values.mean()
@@ -250,10 +253,10 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFram
         clf_cols = ['Foundation Model', 'Atlas', 'Variation', 'Feature', 'Target', 'Classifier', 'ACCURACY', 'AUC', 'F1', 'PRECISION']
         reg_cols = ['Foundation Model', 'Atlas', 'Variation', 'Feature', 'Target', 'Classifier', 'RMSE', 'MAE', 'R²']
 
-        clf_df = summary_df[summary_df['ACCURACY'].notna()][
+        clf_df = summary_df[summary_df['accuracy'].notna()][
             [c for c in clf_cols if c in summary_df.columns]
         ]
-        reg_df = summary_df[summary_df['RMSE'].notna()][
+        reg_df = summary_df[summary_df['rmse'].notna()][
             [c for c in reg_cols if c in summary_df.columns]
         ]
 
