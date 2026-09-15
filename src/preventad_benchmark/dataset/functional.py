@@ -13,10 +13,10 @@ from preventad_benchmark.config import (
     DENOISE_STRATEGY,
     DENOISE_STRATEGY_NAME,
 )
-from preventad_benchmark.dataset.utils import resample_atlas, fetch_and_prepare_schaefer400_atlas, load_phenotype
+from preventad_benchmark.dataset.utils import resample_atlas, load_phenotype
 
 
-from preventad_benchmark.config import A424_NPARCELS, BRAINHARMONIX_SEG_NAME, BRAINHARMONIX_SCHAEFER_ROIS, PHENOTYPE_SEXAGE
+from preventad_benchmark.config import A424_NPARCELS, BRAINHARMONIX_ATLAS_FILE, BRAINHARMONIX_SEG_NAME, BRAINHARMONIX_SCHAEFER_ROIS, PHENOTYPE_SEXAGE
 
 
 _preventad_config = BRAINLM_DATASET_CONFIGS["preventad"]
@@ -33,6 +33,9 @@ def denoise_dataset(sourcedata_dir, processed_dir, standarsization=True):
     standardization: z score per run
     Mask: generic MNI152 whole brain mask.
     """
+    standardize_opt = "zscore_sample" if standarsization == True else None
+    print(f"standardization: {standardize_opt}")
+
     phenotype = pd.read_csv(phenotype_mapper['filepath'], index_col=phenotype_mapper['index_col'], sep='\t')
     func_paths = []
     for idx in phenotype.index:
@@ -57,11 +60,11 @@ def denoise_dataset(sourcedata_dir, processed_dir, standarsization=True):
     mni_mask = datasets.fetch_icbm152_2009()['mask']
     mni_mask = resample_atlas(mni_mask, os.environ["SLURM_TMPDIR"])
     print(f"Using MNI mask at {mni_mask}")
-
+    
     Path(f"{processed_dir}").mkdir(exist_ok=True, parents=True)
     masker = NiftiMasker(
         mask_img=mni_mask,
-        standardize=standarsization,
+        standardize=standardize_opt,
         smoothing_fwhm=None,
         verbose=0
     ).fit()
@@ -78,17 +81,17 @@ def extract_timeseries_from_nifti(source_denoised_dir, output_ts_dir, atlas="sch
     if atlas not in ["schaefer400", "a424"]:
         raise ValueError(f"We only support two atlases: schaefer400, a424. Your input is {atlas}.")
     elif atlas == "schaefer400":
-        atlas_path, _ = fetch_and_prepare_schaefer400_atlas()
-        atlas_labels = (np.arange(BRAINHARMONIX_SCHAEFER_ROIS) + 1).tolist()
+        atlas_path = BRAINHARMONIX_ATLAS_FILE
+        atlas_labels = [str(int(i)) for i in (np.arange(BRAINHARMONIX_SCHAEFER_ROIS) + 1).tolist()]
         seg_name = BRAINHARMONIX_SEG_NAME
     else:
         atlas_path = str(_preventad_config["atlas_file"])
-        atlas_labels = (np.arange(A424_NPARCELS)+1).tolist()
+        atlas_labels = [str(int(i)) for i in (np.arange(A424_NPARCELS) + 1).tolist()]
         seg_name = str(_preventad_config["seg_name"])
 
     # Fetch MNI mask
     mni_mask = datasets.fetch_icbm152_2009()["mask"]
-    mni_mask = resample_atlas(mni_mask, "/tmp")
+    mni_mask = resample_atlas(mni_mask, os.environ["SLURM_TMPDIR"])
 
     # Get list of denoised NIfTI files
     phenotype = load_phenotype(PHENOTYPE_SEXAGE, apply_qc=True)
@@ -126,7 +129,9 @@ def extract_timeseries_from_nifti(source_denoised_dir, output_ts_dir, atlas="sch
         labels_img=atlas_path,
         labels=atlas_labels,
         mask_img=mni_mask,
+        standardize=None,
         verbose=0,
+        memory='nilearn_cache'
     ).fit()
 
     # Extract time series
@@ -136,6 +141,10 @@ def extract_timeseries_from_nifti(source_denoised_dir, output_ts_dir, atlas="sch
         desc="Extracting time series",
     ):
         seg_ts = atlas_masker.transform(nii_path)
-        seg_ts = pd.DataFrame(seg_ts, columns=[int(l) for l in atlas_masker.labels_])
-        seg_ts = seg_ts.reindex(columns=atlas_labels)
+        if seg_ts.shape[-1] ==len(atlas_labels):
+            seg_ts = pd.DataFrame(seg_ts, columns=atlas_labels)
+        else:
+            labels = list(atlas_masker.region_names_.values())
+            seg_ts = pd.DataFrame(seg_ts, columns=labels)
+            seg_ts = seg_ts.reindex(columns=atlas_labels)  # this will fill missing with np.nan
         seg_ts.to_csv(ts_path, sep="\t", na_rep="n/a", index=False)

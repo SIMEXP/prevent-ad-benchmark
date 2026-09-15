@@ -42,15 +42,15 @@ def run_baseline_experiment(input_dir, output_dir):
     # the loaded labels will have the same order as the feature
     labels = load_prediction_targets(input_dir)
 
+    print("Running baseline: dummy classifier")
+    baseline_pipeline(
+        ts_flatten, labels, output_dir, 'dummy',
+        pca_components=EVALUATION_PCA_COMPONENTS,
+    )
     # Timeseries -> PCA
     print("Running baseline: timeseries")
     baseline_pipeline(
         ts_flatten, labels, output_dir, 'timeseries',
-        pca_components=EVALUATION_PCA_COMPONENTS,
-    )
-    print("Running baseline: dummy classifier")
-    baseline_pipeline(
-        ts_flatten, labels, output_dir, 'dummy',
         pca_components=EVALUATION_PCA_COMPONENTS,
     )
     # Connectivity -> no PCA
@@ -62,6 +62,9 @@ def run_baseline_experiment(input_dir, output_dir):
 
 def run_foundation_model_experiment(train_features, train_labels, test_features, test_labels, prefix, pca_components=None):
     """Fit SVM + linear on test-set embeddings and score.
+
+    Due to resource constraint, this function runs one CV split. 
+    Summary of these CV slpits are done at a late stage. 
 
     Args:
         features: (N, D) array of feature vectors.

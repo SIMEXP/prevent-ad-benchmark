@@ -90,7 +90,8 @@ def svm_pipeline(x, y, n_splits=EVALUATION_N_SPLITS, pca_components=None):
         scoring ="regression"
 
     cv = StratifiedShuffleSplit(n_splits=n_splits, random_state=42)
-    strat_labels = _stratify_labels(y, is_clf)
+    # if it's regression, convert target to fit in 20 percentile bins as labels for stratification
+    strat_labels = _stratify_labels(y, is_clf)  
     return cross_validate(pipe, x, y, cv=cv.split(x, strat_labels), scoring=SCORING[scoring], n_jobs=N_JOBS)
 
 
@@ -116,6 +117,7 @@ def linear_pipeline(x, y, n_splits=EVALUATION_N_SPLITS, pca_components=None):
     cv = StratifiedShuffleSplit(n_splits=n_splits, random_state=42)
     strat_labels = _stratify_labels(y, is_clf)
     return cross_validate(pipe, x, y, cv=cv.split(x, strat_labels), scoring=SCORING[scoring], n_jobs=N_JOBS)
+
 
 def dummy_pipeline(x, y, n_splits=EVALUATION_N_SPLITS, pca_components=None):
     """Run dummy cross-validation (DummyClassifier for classification, DummyRegressor for regression).
@@ -172,14 +174,14 @@ def baseline_pipeline(features, labels, output_dir, prefix, pca_components=None)
                 pd.DataFrame(dummy_scores).to_csv(dummy_path, sep="\t")
             continue
 
-        # SVM pipeline
-        svm_path = output_dir / f"x-{prefix}_y-{target_name}_svm_prediction.tsv"
-        if svm_path.exists():
-            print(f"{svm_path} exists, skip")
-        else:
-            print(f"  Running SVM for {prefix} -> {target_name}...")
-            svm_scores = svm_pipeline(x, y, pca_components=pca_components)
-            pd.DataFrame(svm_scores).to_csv(svm_path, sep="\t")
+        # # SVM pipeline
+        # svm_path = output_dir / f"x-{prefix}_y-{target_name}_svm_prediction.tsv"
+        # if svm_path.exists():
+        #     print(f"{svm_path} exists, skip")
+        # else:
+        #     print(f"  Running SVM for {prefix} -> {target_name}...")
+        #     svm_scores = svm_pipeline(x, y, pca_components=pca_components)
+        #     pd.DataFrame(svm_scores).to_csv(svm_path, sep="\t")
 
         # Linear pipeline
         linear_path = output_dir / f"x-{prefix}_y-{target_name}_linear_prediction.tsv"
@@ -202,7 +204,7 @@ def _score_predictions(y_true, y_pred, is_clf):
             "test_acc": accuracy_score(y_true, y_pred),
             "test_auc": roc_auc_score(y_true, y_pred),
             "test_f1": f1_score(y_true, y_pred),
-            "test_precision": precision_score(y_true, y_pred),
+            "test_precision": precision_score(y_true, y_pred, zero_division=0),
         }
     return {
         "test_nrmse": -np.sqrt(mean_squared_error(y_true, y_pred)),

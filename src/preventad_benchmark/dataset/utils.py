@@ -16,7 +16,6 @@ from preventad_benchmark.evaluation.targets import load_prediction_targets
 from preventad_benchmark.config import (
     BRAINLM_COORD_DATASET,
     BRAINLM_COORD_FILE,
-    EVALUATION_TARGETS,
     EXAMPLE_SUBJECT_MNI,
     PHENOTYPE_SEXAGE,
     DENOISE_STRATEGY_NAME,
@@ -177,6 +176,9 @@ def convert_to_arrow_dataset(t1_output_dir, output_ts_dir, output_arrow_dir, seg
     ):
         # Load time series
         seg_ts = pd.read_csv(file_path, sep="\t", header=0, na_values="n/a")
+        # impute n/a with row average
+        row_means = seg_ts.mean(axis=1)
+        seg_ts = seg_ts.fillna(row_means, axis=1)
         seg_ts = seg_ts.values.astype(np.float32)
 
         # Skip if time series is too short

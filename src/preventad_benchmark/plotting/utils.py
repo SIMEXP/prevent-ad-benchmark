@@ -1,6 +1,8 @@
 import re
 from pathlib import Path
 import pandas as pd
+import scipy.stats as stats
+import numpy as np
 
 
 # Feature display names
@@ -66,6 +68,7 @@ def _load_baseline_results(input_dirs: list[Path]) -> pd.DataFrame:
         for filepath in files:
             parsed = parse_filename(filepath)
             if parsed is None:
+                print("couldn't parse {filepath}")
                 continue
 
             df = pd.read_csv(filepath, sep='\t', index_col=0)
@@ -191,6 +194,8 @@ def load_results(input_dirs: list[Path]) -> pd.DataFrame:
         else:
             baseline_dirs.append(d)
 
+    print(f"Found {len(baseline_dirs)} basline and {len(foundation_dirs)} foundation model results")
+
     dfs = []
     if baseline_dirs:
         dfs.append(_load_baseline_results(baseline_dirs))
@@ -202,10 +207,23 @@ def load_results(input_dirs: list[Path]) -> pd.DataFrame:
     return pd.concat(dfs, ignore_index=True)
 
 
-def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFrame:
-    """Create summary table with mean ± std for all metrics."""
-    summary_records = []
+def _cal_mean_ci95(values):
+    mean = values.mean()
+    sd = values.std(ddof=1)
+    n = len(values)
+    ci_lower, ci_upper = stats.t.interval(
+        0.95, 
+        df=n-1, 
+        loc=mean, 
+        scale=sd / np.sqrt(n)
+    )
+    return mean, ci_lower, ci_upper
 
+
+def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFrame:
+    """Create summary table with mean and CI95% for all metrics."""
+    summary_records = []
+    
     for (foundation_model, variation, feature, target, classifier, atlas), group in df.groupby(['foundation_model', 'variation', 'feature', 'target', 'classifier', 'atlas']):
         record = {
             'Foundation Model': foundation_model,
@@ -218,21 +236,12 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFram
 
         if group['task_type'].iloc[0] == 'classification':
             for metric in ['accuracy', 'auc', 'f1', 'precision']:
-                mean = group[metric].mean()
-                # report confience interval instead of SD as these
-                # splits are autocorrelated
-                ci_lower = group[metric].quantile(0.025)
-                ci_upper = group[metric].quantile(0.975)
+                mean, ci_lower, ci_upper = _cal_mean_ci95(group[metric])
                 record[metric.upper()] = f'{mean:.3f} [{ci_lower:.3f} {ci_upper:.3f}]'
         else:
             for metric, col in [('RMSE', 'rmse'), ('MAE', 'mae'), ('R²', 'r2')]:
-                mean = group[col].mean()
-                # report confience interval instead of SD as these
-                # splits are autocorrelated
-                ci_lower = group[col].quantile(0.025)
-                ci_upper = group[col].quantile(0.975)
+                mean, ci_lower, ci_upper = _cal_mean_ci95(group[col])
                 record[metric] = f'{mean:.3f} [{ci_lower:.3f} {ci_upper:.3f}]'
-
         summary_records.append(record)
 
     summary_df = pd.DataFrame(summary_records)
