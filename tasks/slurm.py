@@ -74,7 +74,7 @@ def submit_job_array(job_name, command_template, array_range, slurm_params, dry_
     time = slurm_params.get("time", "4:00:00")
     mem = slurm_params.get("mem", "32G")
     cpus = slurm_params.get("cpus_per_task", 4)
-    gpus_per_node = slurm_params.get("gpus_per_node", "h100:1")
+    gpus_per_node = slurm_params.get("gpus_per_node", "nvidia_h100_80gb_hbm3_2g.20gb:1")
 
     lines = [
         "#!/bin/bash",

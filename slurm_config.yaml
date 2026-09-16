@@ -3,7 +3,7 @@ defaults:
   time: "1:00:00"  # Fir enforces a 1-hour minimum walltime
   mem: "24G"
   cpus_per_task: 4
-  gpus_per_node: "h100:1"
+  gpus_per_node: "nvidia_h100_80gb_hbm3_2g.20gb:1"
 
 overrides:
   finetune_brainharmonix:
