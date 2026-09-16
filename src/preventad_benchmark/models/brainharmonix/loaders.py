@@ -102,13 +102,27 @@ def load_harmonizer(ckpt_path, device, mode="inference", is_finetuned=False):
     If `is_finetuned`, loads our own combined checkpoint's "harmonizer" key (see
     utils.save_checkpoint); otherwise loads the original pretrained checkpoint, nested
     under a "model" key per upstream convention.
+
+    mode="inference" (extract_brainharmonix.py): weights are cast to fp16, matching
+    upstream's own convention -- safe since nothing ever calls .step() on them here.
+
+    mode="train" (finetune_brainharmonix.py): weights are kept fp32. AdamW updating
+    fp16-stored params corrupts them to inf after a single step (verified directly --
+    fp16's dynamic range is too narrow for Adam's bias-corrected second-moment
+    denominator). The forward pass still needs fp16 for flash-attn --
+    models.BrainHarmonixSelfSupervisedModel wraps it in torch.autocast instead of
+    relying on the stored weight dtype.
     """
     harmonizer = onetokreg_vit_base_patch16(num_latent_tokens=BRAINHARMONIX_NUM_LATENT_TOKENS)
     checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     state_dict = checkpoint["harmonizer"] if is_finetuned else checkpoint["model"]
     harmonizer.load_state_dict(state_dict, strict=False)
-    harmonizer = harmonizer.to(device).half()  # fp16: required by flash-attn, matches extract_brainharmonix.py's convention
-    harmonizer.train() if mode == "train" else harmonizer.eval()
+    harmonizer = harmonizer.to(device)
+    if mode == "train":
+        harmonizer.train()
+    else:
+        harmonizer = harmonizer.half()
+        harmonizer.eval()
     return harmonizer
 
 
