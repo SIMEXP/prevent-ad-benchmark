@@ -85,6 +85,11 @@ class BrainHarmonixDataset(Dataset):
         t1 = torch.load(row["t1_filepath"])
         if t1.ndim == 4:  # drop a leading singleton channel dim if the saved tensor has one
             t1 = t1.squeeze(0)
+        # Global z-score over the full (uncropped) volume, matching BrainHarmony's own
+        # T1_BaseDataset.normalize -- PreventAD's T1 is skull-stripped but not intensity-
+        # normalized, and feeding raw arbitrary-scale intensities into a frozen pretrained
+        # encoder (cast to fp16 for flash-attn) is a likely source of NaN loss.
+        t1 = (t1 - t1.mean()) / (t1.std() + 1e-9)
         t1 = _center_crop_or_pad(t1, BRAINHARMONIX_T1_TARGET_SHAPE)
         t1 = t1.unsqueeze(0)  # (1, H, W, D)
 
