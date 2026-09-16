@@ -49,6 +49,7 @@ EXTRACTOION_PARAM = {
         "preprocessing": "Preprocessing type: brainlm, brainlm_z, gigaconnectome, or gigaconnectome_z (default: brainlm)",
         "model-params": "Model size: 111M or 650M (default: 650M)",
         "split-index": "Index of the train/test split (default: 0)",
+        "lr": "Learning rate (default: 1e-4)",
     }
 )
 def finetune(
@@ -56,6 +57,7 @@ def finetune(
     preprocessing="brainlm",
     model_params="650M",
     split_index=0,
+    lr=1e-4,
 ):
     """Fine-tune BrainLM ViT-MAE model and extract finetuned features.
 
@@ -65,6 +67,7 @@ def finetune(
     Example:
         inv brainlm.finetune
         inv brainlm.finetune --preprocessing=gigaconnectome --model-params=650M
+        inv brainlm.finetune --lr=5e-5
     """
     cfg = EXTRACTOION_PARAM[preprocessing]
     input_path = str(cfg["input_path"])
@@ -76,7 +79,7 @@ def finetune(
     cmd = (
         f"preventad-finetune-brainlm --dataset {input_path} "
         f"--output-dir {output_path} --image-column-name {image_column} "
-        f"--model-params {model_params} --split-index {split_index}"
+        f"--model-params {model_params} --split-index {split_index} --lr {lr}"
         f"{normalize_flag}"
     )
     print(f"Running: {cmd}")
@@ -101,9 +104,10 @@ def finetune(
         "preprocessing": "Preprocessing type: brainlm, brainlm_z, gigaconnectome, gigaconnectome_z, or all (default: all)",
         "n-splits": "Number of train/test splits (default: 20)",
         "dry-run": "Print generated scripts without submitting (default: False)",
+        "lr": "Learning rate (default: 1e-4)",
     }
 )
-def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, rerun_finetune=False, dry_run=False):
+def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, rerun_finetune=False, dry_run=False, lr=1e-4):
     """Submit SLURM job arrays for BrainLM fine-tuning + finetuned feature extraction.
 
     Each array task fine-tunes BrainLM on one train/test split,
@@ -113,6 +117,7 @@ def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, rerun
         inv brainlm.submit-finetune
         inv brainlm.submit-finetune --model-size=650M --preprocessing=brainlm
         inv brainlm.submit-finetune --dry-run
+        inv brainlm.submit-finetune --lr=5e-5
     """
     slurm_params = load_slurm_config("finetune_brainlm")
     array_range = f"0-{n_splits - 1}"
@@ -137,7 +142,7 @@ def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, rerun
                 f"--output-dir {finetune_dir}/split$SLURM_ARRAY_TASK_ID "
                 f"--image-column-name {cfg['image_column']} "
                 f"--model-params {size} "
-                f"--split-index $SLURM_ARRAY_TASK_ID"
+                f"--split-index $SLURM_ARRAY_TASK_ID --lr {lr}"
                 f"{normalize_flag}"
             )
             extract_prefix = f"{output_suffix}.brainlm{size}.finetuned"
