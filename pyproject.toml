@@ -24,10 +24,11 @@ dependencies = [
     "transformers[torch]>=4.48.3",
     "brainharmonix",
     "evaluate>=0.4.4",
-"timm>=1.0.24",
+    "timm>=1.0.24",
     "einops>=0.8.1",
     "flash-attn>=2.7.4.post1",
     "datasets>=3.2.0",
+    "gdown>=6.2.0",
 ]
 
 [project.optional-dependencies]
