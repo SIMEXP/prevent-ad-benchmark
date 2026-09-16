@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 from preventad_benchmark.models.brainlm_mae.modeling_vit_mae_with_padding import ViTMAEForPreTraining
-from transformers import ViTMAEConfig, Trainer, TrainingArguments
+from transformers import EarlyStoppingCallback, ViTMAEConfig, Trainer, TrainingArguments
 
 from datasets import load_from_disk, DatasetDict
 import numpy as np
@@ -98,6 +98,12 @@ def main():
         type=float,
         default=1e-4,
         help="Learning rate (default: 1e-4)",
+    )
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=5,
+        help="Stop early if val loss doesn't improve for this many epochs (default: 5)",
     )
     args = parser.parse_args()
     inputs_path = args.dataset
@@ -203,6 +209,11 @@ def main():
         include_for_metrics=['inputs'],
         eval_strategy="epoch",
         logging_strategy="epoch",
+        save_strategy="epoch",  # must match eval_strategy for load_best_model_at_end
+        save_total_limit=1,  # keeps the best checkpoint even when trimming, since load_best_model_at_end=True
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
         num_train_epochs=25,
         learning_rate=args.lr,
         weight_decay=0.01,
@@ -217,7 +228,8 @@ def main():
         train_dataset=train_test_dataset["train"],
         eval_dataset=train_test_dataset["test"],
         data_collator=collate_fn,
-        compute_metrics=metrics_calculator
+        compute_metrics=metrics_calculator,
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)],
     )
 
     train_result = trainer.train()
@@ -260,7 +272,7 @@ def main():
         "target": None,
         "best_metric_value": best_val_loss,
         "metric_key": "loss",
-        "epochs": training_args.num_train_epochs,
+        "epochs": len(epoch_metrics),  # actual epochs run, which early stopping may cut short of num_train_epochs
         "lr": training_args.learning_rate,
         "batch_size": training_args.per_device_train_batch_size,
         "metrics": epoch_metrics,

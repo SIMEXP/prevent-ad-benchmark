@@ -150,6 +150,12 @@ Examples:
     parser.add_argument("--weight-decay", type=float, default=0.01, help="Weight decay (default: 0.01)")
     parser.add_argument("--num-workers", type=int, default=4, help="DataLoader workers (default: 4)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=5,
+        help="Stop early if the val metric doesn't improve for this many epochs (default: 5)",
+    )
 
     # Checkpoint arguments
     parser.add_argument(
@@ -306,9 +312,10 @@ Examples:
         criterion = nn.MSELoss()
 
     # Training loop
-    print(f"\nStarting training for {args.epochs} epochs...")
+    print(f"\nStarting training for {args.epochs} epochs (patience={args.patience})...")
     best_loss = float("inf")
     metrics = []
+    epochs_without_improvement = 0
     for epoch in range(1, args.epochs + 1):
         if args.task == "self-supervised":
             train_metrics = train_epoch_self_supervised(
@@ -362,6 +369,7 @@ Examples:
                 })
         # Save best model
         if is_best:
+            epochs_without_improvement = 0
             save_checkpoint(
                 model,
                 optimizer,
@@ -371,12 +379,17 @@ Examples:
                 args.task,
                 label_map=dataset.label_map if args.task == "classification" else None,
             )
+        else:
+            epochs_without_improvement += 1
+            if epochs_without_improvement >= args.patience:
+                print(f"No improvement in val {metric_key} for {args.patience} epochs -- stopping early at epoch {epoch}.")
+                break
 
     # Save final model
     save_checkpoint(
         model,
         optimizer,
-        args.epochs,
+        epoch,  # actual last epoch run, which early stopping may cut short of args.epochs
         val_metrics,
         args.output_dir / "harmonizer_checkpoint_final.pt",
         args.task,
@@ -389,7 +402,7 @@ Examples:
         "target": args.target,
         "best_metric_value": best_loss,
         "metric_key": metric_key if args.task != "self-supervised" else "loss",
-        "epochs": args.epochs,
+        "epochs": len(metrics),  # actual epochs run, which early stopping may cut short of args.epochs
         "lr": args.lr,
         "batch_size": args.batch_size,
         "metrics": metrics,

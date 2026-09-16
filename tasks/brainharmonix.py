@@ -9,15 +9,16 @@ from preventad_benchmark.config import EVALUATION_N_SPLITS
 @invoke.task(
     help={
         "split-index": "Index of the train/test split (default: 0)",
+        "patience": "Stop early if the val metric doesn't improve for this many epochs (default: 5)",
     }
 )
-def finetune(c, split_index=0):
+def finetune(c, split_index=0, patience=5):
     """Fine-tune BrainHarmonix harmonizer and run prediction pipeline. For interactive jobs and debugging."""
 
     print("Fine-tuning BrainHarmonix harmonizer with self-supervised objective...")
 
     # zscore experiment
-    cmd = f"preventad-finetune-brainharmonix --dataset=data/processed/dataset-preventad.fmri.zscored.gigaconnectome.schaefer400.arrow --task=self-supervised --output-dir=outputs/finetune/brainharmonix/zscore.self-supervised/{split_index} --epoch=50 --lr=1e-4 --weight-decay=0.01 --split-index {split_index}"
+    cmd = f"preventad-finetune-brainharmonix --dataset=data/processed/dataset-preventad.fmri.zscored.gigaconnectome.schaefer400.arrow --task=self-supervised --output-dir=outputs/finetune/brainharmonix/zscore.self-supervised/{split_index} --epoch=25 --lr=1e-4 --weight-decay=0.01 --split-index {split_index} --patience {patience}"
 
     print(f"Running: {cmd}")
     c.run(cmd)
@@ -29,7 +30,7 @@ def finetune(c, split_index=0):
 
 
     # nozscore experiment
-    cmd = f"preventad-finetune-brainharmonix --dataset=data/processed/dataset-preventad.fmri.NoZscore.gigaconnectome.schaefer400.arrow --task=self-supervised --output-dir=outputs/finetune/brainharmonix/nozscore.self-supervised/{split_index} --epoch=25 --lr=1e-4 --weight-decay=0.01 --split-index {split_index}"
+    cmd = f"preventad-finetune-brainharmonix --dataset=data/processed/dataset-preventad.fmri.NoZscore.gigaconnectome.schaefer400.arrow --task=self-supervised --output-dir=outputs/finetune/brainharmonix/nozscore.self-supervised/{split_index} --epoch=25 --lr=1e-4 --weight-decay=0.01 --split-index {split_index} --patience {patience}"
 
     print(f"Running: {cmd}")
     c.run(cmd)
@@ -91,9 +92,10 @@ def submit_evaluate(c, n_splits=EVALUATION_N_SPLITS, dry_run=False):
     help={
         "n-splits": "Number of train/test splits (default: 20)",
         "dry-run": "Print generated scripts without submitting (default: False)",
+        "patience": "Stop early if the val metric doesn't improve for this many epochs (default: 5)",
     }
 )
-def submit_finetune(c, n_splits=EVALUATION_N_SPLITS, rerun_finetune=False, dry_run=False):
+def submit_finetune(c, n_splits=EVALUATION_N_SPLITS, rerun_finetune=False, dry_run=False, patience=5):
     """Submit SLURM job arrays for BrainHarmonix fine-tuning + prediction."""
     slurm_params = load_slurm_config("finetune_brainharmonix")
     array_range = f"0-{n_splits - 1}"
@@ -107,7 +109,7 @@ def submit_finetune(c, n_splits=EVALUATION_N_SPLITS, rerun_finetune=False, dry_r
                 "--dataset=data/processed/dataset-preventad.fmri.zscored.gigaconnectome.schaefer400.arrow "
                 "--task=self-supervised "
                 "--output-dir=outputs/finetune/brainharmonix/zscore.self-supervised/$SLURM_ARRAY_TASK_ID "
-                "--epoch=100 --lr=1e-4 --weight-decay=0.01 "
+                f"--epoch=100 --lr=1e-4 --weight-decay=0.01 --patience {patience} "
                 "--split-index $SLURM_ARRAY_TASK_ID"
                 "\n\n"
                 "preventad-extract-brainharmonix "
@@ -122,7 +124,7 @@ def submit_finetune(c, n_splits=EVALUATION_N_SPLITS, rerun_finetune=False, dry_r
                 "--dataset=data/processed/dataset-preventad.fmri.NoZscore.gigaconnectome.schaefer400.arrow "
                 "--task=self-supervised "
                 "--output-dir=outputs/finetune/brainharmonix/nozscore.self-supervised/$SLURM_ARRAY_TASK_ID "
-                "--epoch=50 --lr=1e-4 --weight-decay=0.01 "
+                f"--epoch=50 --lr=1e-4 --weight-decay=0.01 --patience {patience} "
                 "--split-index $SLURM_ARRAY_TASK_ID"
                 "\n\n"
                 "preventad-extract-brainharmonix "
