@@ -24,7 +24,7 @@ def finetune(c, split_index=0, patience=5):
     c.run(cmd)
 
     # zscore extract
-    cmd = f"preventad-extract-brainharmonix --dataset data/processed/dataset-preventad.fmri.zscored.gigaconnectome.schaefer400.arrow --harmonizer-ckpt outputs/finetune/brainharmonix/zscore.self-supervised/{split_index}/harmonizer_checkpoint_best.pt --output-prefix zscore.brainharmonix.finetuned --split-index {split_index}"
+    cmd = f"preventad-extract-brainharmonix --dataset data/processed/dataset-preventad.fmri.zscored.gigaconnectome.schaefer400.arrow --harmonizer-ckpt outputs/finetune/brainharmonix/zscore.self-supervised/{split_index}/harmonizer_checkpoint_best.pt --is-finetuned --output-prefix zscore.brainharmonix.finetuned --split-index {split_index}"
 
     c.run(cmd)
 
@@ -36,7 +36,7 @@ def finetune(c, split_index=0, patience=5):
     c.run(cmd)
 
     # nozscore extract
-    cmd = f"preventad-extract-brainharmonix --dataset data/processed/dataset-preventad.fmri.NoZscore.gigaconnectome.schaefer400.arrow --harmonizer-ckpt outputs/finetune/brainharmonix/nozscore.self-supervised/{split_index}/harmonizer_checkpoint_best.pt --output-prefix nozscore.brainharmonix.finetuned --split-index {split_index}"
+    cmd = f"preventad-extract-brainharmonix --dataset data/processed/dataset-preventad.fmri.NoZscore.gigaconnectome.schaefer400.arrow --harmonizer-ckpt outputs/finetune/brainharmonix/nozscore.self-supervised/{split_index}/harmonizer_checkpoint_best.pt --is-finetuned --output-prefix nozscore.brainharmonix.finetuned --split-index {split_index}"
     c.run(cmd)
 
 
@@ -115,6 +115,7 @@ def submit_finetune(c, n_splits=EVALUATION_N_SPLITS, rerun_finetune=False, dry_r
                 "preventad-extract-brainharmonix "
                 "--dataset data/processed/dataset-preventad.fmri.zscored.gigaconnectome.schaefer400.arrow "
                 "--harmonizer-ckpt outputs/finetune/brainharmonix/zscore.self-supervised/$SLURM_ARRAY_TASK_ID/harmonizer_checkpoint_best.pt "
+                "--is-finetuned "
                 "--output-prefix zscore.brainharmonix.finetuned "
                 "--split-index $SLURM_ARRAY_TASK_ID",
             ),
@@ -130,6 +131,7 @@ def submit_finetune(c, n_splits=EVALUATION_N_SPLITS, rerun_finetune=False, dry_r
                 "preventad-extract-brainharmonix "
                 "--dataset data/processed/dataset-preventad.fmri.NoZscore.gigaconnectome.schaefer400.arrow "
                 "--harmonizer-ckpt outputs/finetune/brainharmonix/nozscore.self-supervised/$SLURM_ARRAY_TASK_ID/harmonizer_checkpoint_best.pt "
+                "--is-finetuned "
                 "--output-prefix nozscore.brainharmonix.finetuned "
                 "--split-index $SLURM_ARRAY_TASK_ID",
             ),
@@ -143,6 +145,7 @@ def submit_finetune(c, n_splits=EVALUATION_N_SPLITS, rerun_finetune=False, dry_r
                 "preventad-extract-brainharmonix "
                 "--dataset data/processed/dataset-preventad.fmri.zscored.gigaconnectome.schaefer400.arrow "
                 "--harmonizer-ckpt outputs/finetune/brainharmonix/zscore.self-supervised/$SLURM_ARRAY_TASK_ID/harmonizer_checkpoint_best.pt "
+                "--is-finetuned "
                 "--output-prefix zscore.brainharmonix.finetuned "
                 "--split-index $SLURM_ARRAY_TASK_ID",
             ),
@@ -151,6 +154,7 @@ def submit_finetune(c, n_splits=EVALUATION_N_SPLITS, rerun_finetune=False, dry_r
                 "preventad-extract-brainharmonix "
                 "--dataset data/processed/dataset-preventad.fmri.NoZscore.gigaconnectome.schaefer400.arrow "
                 "--harmonizer-ckpt outputs/finetune/brainharmonix/nozscore.self-supervised/$SLURM_ARRAY_TASK_ID/harmonizer_checkpoint_best.pt "
+                "--is-finetuned "
                 "--output-prefix nozscore.brainharmonix.finetuned "
                 "--split-index $SLURM_ARRAY_TASK_ID",
             ),
