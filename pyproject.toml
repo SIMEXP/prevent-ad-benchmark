@@ -52,7 +52,7 @@ version="2.7.4"
 requires-dist = ["torch", "einops"]
 
 [tool.uv.sources]
-brainharmonix = { git = "https://github.com/MedARC-AI/Brain-Harmony.git", rev = "5398f8f5540222973cf82d13ac1eb4c4b38af636" }
+brainharmonix = { git = "https://github.com/htwangtw/Brain-Harmony.git", rev = "631bf4f18f6d410efa20684a2a690201461539de" }
 
 [build-system]
 requires = ["hatchling"]

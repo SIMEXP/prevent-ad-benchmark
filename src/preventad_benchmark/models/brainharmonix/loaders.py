@@ -1,10 +1,12 @@
 """Loaders for BrainHarmonix's pretrained fMRI encoder, T1 encoder, and harmonizer.
 
-Wraps the `brainharmonix` pip package (github.com/MedARC-AI/Brain-Harmony, pinned in
-pyproject.toml) rather than the `BrainHarmony/` git submodule: the submodule's bare
-`from libs...`/`from modules...` imports don't resolve without a sys.path hack, and it
-has a stray `breakpoint()` plus an `attn_utils` import bug in its eager-attention path
-that the pip fork fixes (it also adds the "sdpa" attention backend used below).
+Wraps the `brainharmonix` pip package (pinned in pyproject.toml to htwangtw/Brain-Harmony,
+a fork of MedARC-AI/Brain-Harmony with a fixed `is_flash_attn_2_available` -- see
+https://github.com/htwangtw/Brain-Harmony/commit/631bf4f18f6d410efa20684a2a690201461539de)
+rather than the `BrainHarmony/` git submodule: the submodule's bare `from libs...`/
+`from modules...` imports don't resolve without a sys.path hack, and it has a stray
+`breakpoint()` plus an `attn_utils` import bug in its eager-attention path that the pip
+fork fixes (it also adds the "sdpa" attention backend used below).
 
 The fMRI encoder is portable to CPU (attn_mode="sdpa"). The T1 encoder and the harmonizer
 both hardcode flash-attention with no override, so constructing/running them for real
