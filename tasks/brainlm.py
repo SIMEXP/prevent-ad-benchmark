@@ -127,6 +127,11 @@ def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, rerun
     slurm_params = load_slurm_config("finetune_brainlm")
     array_range = f"0-{n_splits - 1}"
 
+    if rerun_finetune:
+        print("WARNING: This will re-run fine-tuning for all splits, which may be time-consuming. Make sure to set --rerun-finetune=False if you only want to re-run the prediction step with existing fine-tuned checkpoints.")
+    else:
+        print("Only re-running prediction with existing fine-tuned checkpoints. Make sure to set --rerun-finetune=True if you want to re-run fine-tuning for all splits.")
+
     sizes = ["111M", "650M"] if model_size == "all" else [model_size]
     preps = ["brainlm", "brainlm_z", "gigaconnectome", "gigaconnectome_z"] if preprocessing == "all" else [preprocessing]
 

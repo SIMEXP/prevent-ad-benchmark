@@ -10,5 +10,5 @@ overrides:
     time: "4:00:00"
     mem: "24G"
   finetune_brainlm:
-    time: "1:00:00"
+    time: "4:00:00"
     mem: "24G"
