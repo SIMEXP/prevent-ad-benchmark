@@ -227,8 +227,7 @@ def submit_evaluate(c, model_size="all", preprocessing="all", n_splits=20, dry_r
         inv brainlm.submit-evaluate --dry-run
     """
     slurm_params = load_slurm_config("extract_brainlm")
-    # array_range = f"0-{n_splits - 1}"
-    array_range = "0-5"
+    array_range = f"0-{n_splits - 1}"
 
     sizes = ["111M", "650M"] if model_size == "all" else [model_size]
     preps = ["brainlm", "brainlm_z", "gigaconnectome", "gigaconnectome_z"] if preprocessing == "all" else [preprocessing]
