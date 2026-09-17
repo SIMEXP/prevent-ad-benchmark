@@ -105,6 +105,12 @@ def main():
         default=5,
         help="Stop early if val loss doesn't improve for this many epochs (default: 5)",
     )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=50,
+        help="Maximum number of epochs; early stopping may end training sooner (default: 50)",
+    )
     args = parser.parse_args()
     inputs_path = args.dataset
     outputs_path = args.output_dir
@@ -214,7 +220,7 @@ def main():
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
-        num_train_epochs=25,
+        num_train_epochs=args.epochs,
         learning_rate=args.lr,
         weight_decay=0.01,
         per_device_eval_batch_size=4,

@@ -18,7 +18,7 @@ def finetune(c, split_index=0, patience=5):
     print("Fine-tuning BrainHarmonix harmonizer with self-supervised objective...")
 
     # zscore experiment
-    cmd = f"preventad-finetune-brainharmonix --dataset=data/processed/dataset-preventad.fmri.zscored.gigaconnectome.schaefer400.arrow --task=self-supervised --output-dir=outputs/finetune/brainharmonix/zscore.self-supervised/{split_index} --epoch=25 --lr=1e-4 --weight-decay=0.01 --split-index {split_index} --patience {patience}"
+    cmd = f"preventad-finetune-brainharmonix --dataset=data/processed/dataset-preventad.fmri.zscored.gigaconnectome.schaefer400.arrow --task=self-supervised --output-dir=outputs/finetune/brainharmonix/zscore.self-supervised/{split_index} --epoch=50 --lr=1e-4 --weight-decay=0.01 --split-index {split_index} --patience {patience}"
 
     print(f"Running: {cmd}")
     c.run(cmd)
@@ -30,7 +30,7 @@ def finetune(c, split_index=0, patience=5):
 
 
     # nozscore experiment
-    cmd = f"preventad-finetune-brainharmonix --dataset=data/processed/dataset-preventad.fmri.NoZscore.gigaconnectome.schaefer400.arrow --task=self-supervised --output-dir=outputs/finetune/brainharmonix/nozscore.self-supervised/{split_index} --epoch=25 --lr=1e-4 --weight-decay=0.01 --split-index {split_index} --patience {patience}"
+    cmd = f"preventad-finetune-brainharmonix --dataset=data/processed/dataset-preventad.fmri.NoZscore.gigaconnectome.schaefer400.arrow --task=self-supervised --output-dir=outputs/finetune/brainharmonix/nozscore.self-supervised/{split_index} --epoch=50 --lr=1e-4 --weight-decay=0.01 --split-index {split_index} --patience {patience}"
 
     print(f"Running: {cmd}")
     c.run(cmd)
@@ -109,7 +109,7 @@ def submit_finetune(c, n_splits=EVALUATION_N_SPLITS, rerun_finetune=False, dry_r
                 "--dataset=data/processed/dataset-preventad.fmri.zscored.gigaconnectome.schaefer400.arrow "
                 "--task=self-supervised "
                 "--output-dir=outputs/finetune/brainharmonix/zscore.self-supervised/$SLURM_ARRAY_TASK_ID "
-                f"--epoch=100 --lr=1e-4 --weight-decay=0.01 --patience {patience} "
+                f"--epoch=50 --lr=1e-4 --weight-decay=0.01 --patience {patience} "
                 "--split-index $SLURM_ARRAY_TASK_ID"
                 "\n\n"
                 "preventad-extract-brainharmonix "
