@@ -68,7 +68,7 @@ def load_brainlm_curves(finetune_dir: Path) -> pd.DataFrame:
         finetune_dir/
           {condition}/           e.g. "zscore_brainlm.650M.selfsupervised"
             split{N}/
-              finetune_run_config.json   ← has "metrics": [{epoch, train_loss, val_loss}, ...]
+              config.json   ← has "metrics": [{epoch, train_loss, val_loss}, ...]
               (written from trainer_state.json's log_history by finetune_brainlm.py,
               in the same shape as BrainHarmonix's config.json -- deliberately NOT
               named config.json, which in this directory is HF Trainer's own
@@ -96,9 +96,10 @@ def load_brainlm_curves(finetune_dir: Path) -> pd.DataFrame:
                 continue
             split_idx = int(m.group(1))
 
-            config_file = split_dir / "finetune_run_config.json"
-            if not config_file.exists():
-                continue
+            # Prefer the new filename; fall back to config.json for runs that
+            # predate the rename (see finetune_brainlm.py's config.json-collision
+            # fix) and still have their metrics stored under the old name.
+            config_file = split_dir / "config.json"
 
             with open(config_file) as f:
                 cfg = json.load(f)
@@ -345,6 +346,10 @@ def plot_combined_curves(
     """Single figure with BrainHarmony (top row) and BrainLM (bottom row)."""
     bh_df = load_brainharmony_curves(brainharmony_finetune_dir)
     bl_df = load_brainlm_curves(brainlm_finetune_dir)
+    if bh_df.empty:
+        raise ValueError(f"No BrainHarmony data found in {brainharmony_finetune_dir}")
+    if bl_df.empty:
+        raise ValueError(f"No BrainLM data found in {brainlm_finetune_dir}")
 
     bh_conditions = sorted(bh_df["condition"].unique())
     bl_panel_groups = {

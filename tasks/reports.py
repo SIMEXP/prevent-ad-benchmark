@@ -52,22 +52,36 @@ def plot_learning_curves(c, model="combined", output_dir=None):
     bh_dir = PROJECT_ROOT / "outputs/finetune/brainharmonix"
     bl_dir = PROJECT_ROOT / "outputs/finetune/brainlm"
 
+    def _try(label, fn, **kwargs):
+        try:
+            fn(**kwargs)
+        except ValueError as e:
+            print(f"Skipping {label}: {e}")
+
     if model in ("brainharmony", "combined"):
-        plot_brainharmony_curves(
+        _try(
+            "BrainHarmony curves",
+            plot_brainharmony_curves,
             finetune_dir=bh_dir,
             output_path=out_dir / "brainharmony_learning_curves.png",
         )
     if model in ("brainlm", "combined"):
-        plot_brainlm_curves(
+        _try(
+            "BrainLM curves",
+            plot_brainlm_curves,
             finetune_dir=bl_dir,
             output_path=out_dir / "brainlm_learning_curves.png",
         )
-        plot_brainlm_curves_by_condition(
+        _try(
+            "BrainLM curves by condition",
+            plot_brainlm_curves_by_condition,
             finetune_dir=bl_dir,
             output_path=out_dir / "brainlm_learning_curves_by_condition.png",
         )
     if model == "combined":
-        plot_combined_curves(
+        _try(
+            "combined curves",
+            plot_combined_curves,
             brainharmony_finetune_dir=bh_dir,
             brainlm_finetune_dir=bl_dir,
             output_path=out_dir / "combined_learning_curves.png",
