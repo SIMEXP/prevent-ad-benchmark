@@ -3,12 +3,15 @@
 This module contains invoke tasks for generating result visualizations.
 """
 from pathlib import Path
+import pandas as pd
 from preventad_benchmark.plotting.utils import load_results, make_summary_table
 from preventad_benchmark.plotting.learning_curves import (
     plot_brainharmony_curves,
     plot_brainlm_curves,
+    plot_brainlm_curves_by_condition,
     plot_combined_curves,
 )
+from preventad_benchmark.plotting.classification_summary import plot_classification_summary
 import invoke
 
 
@@ -59,6 +62,10 @@ def plot_learning_curves(c, model="combined", output_dir=None):
             finetune_dir=bl_dir,
             output_path=out_dir / "brainlm_learning_curves.png",
         )
+        plot_brainlm_curves_by_condition(
+            finetune_dir=bl_dir,
+            output_path=out_dir / "brainlm_learning_curves_by_condition.png",
+        )
     if model == "combined":
         plot_combined_curves(
             brainharmony_finetune_dir=bh_dir,
@@ -86,4 +93,35 @@ def generate_summary(c, experiment='baselines', output_dir=PROJECT_ROOT / 'outpu
     else:
         input_dirs = INPUT_DIRS[experiment]
     df = load_results(input_dirs)
-    make_summary_table(df, output_dir=output_dir / experiment)
+    # Always load baselines separately for the vs-FC/vs-dummy t-tests, even when
+    # summarizing a single foundation model's own results (which wouldn't
+    # otherwise include the baseline/dummy rows to compare against).
+    baseline_df = df if experiment in ('all', 'baselines') else load_results(INPUT_DIRS['baselines'])
+    make_summary_table(df, output_dir=output_dir / experiment, baseline_df=baseline_df)
+
+
+@invoke.task(
+    help={
+        "output-dir": "Directory to save figures (default: outputs/reports/classification_summary/)",
+    }
+)
+def plot_classification(c, output_dir=None):
+    """Plot per-target classification summary bar charts (accuracy + precision),
+    ranked against the Schaefer400 functional-connectivity and dummy baselines.
+
+    Requires `inv reports.generate-summary --experiment all` (or any experiment
+    that includes both a foundation model and the baselines) to have been run
+    first, since this reads summary_classification.tsv.
+
+    Example:
+        inv reports.generate-summary --experiment all
+        inv reports.plot-classification
+    """
+    out_dir = Path(output_dir) if output_dir else PROJECT_ROOT / "outputs/reports/classification_summary"
+    summary_path = PROJECT_ROOT / "outputs/reports/all/summary_classification.tsv"
+    if not summary_path.exists():
+        raise FileNotFoundError(
+            f"{summary_path} not found -- run `inv reports.generate-summary --experiment all` first."
+        )
+    df = pd.read_csv(summary_path, sep="\t")
+    plot_classification_summary(df, output_dir=out_dir)
