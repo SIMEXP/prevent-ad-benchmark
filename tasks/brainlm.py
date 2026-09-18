@@ -96,7 +96,7 @@ def finetune(
     extract_prefix = f"{output_suffix}.brainlm{model_params}.finetuned"
     extract_cmd = (
         f"preventad-extract-brainlm --dataset {input_path} "
-        f"--model-path {output_path} --output-dir {extract_dir} "
+        f"--model-path {output_path} --model-params {model_params} --output-dir {extract_dir} "
         f"--output-prefix {extract_prefix} --image-column-name {image_column} "
         f"--split-index {split_index}{normalize_flag}"
     )
@@ -164,7 +164,7 @@ def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, rerun
             extract_cmd = (
                 f"preventad-extract-brainlm "
                 f"--dataset {input_path} "
-                f"--model-path {finetune_dir}/split$SLURM_ARRAY_TASK_ID "
+                f"--model-path {finetune_dir}/split$SLURM_ARRAY_TASK_ID --model-params {size} "
                 f"--output-dir {extract_dir} "
                 f"--output-prefix {extract_prefix} "
                 f"--image-column-name {cfg['image_column']} "
@@ -211,7 +211,7 @@ def evaluate(c, model_size="650M", preprocessing="all", split_index=0):
             output_prefix = f"{params['output_suffix']}.brainlm{size}"
 
             normalize_flag = " --normalize" if params.get("normalize") else ""
-            cmd = f"preventad-extract-brainlm --dataset {params['input_path']} --model-path {model_path} --output-dir {output_dir} --output-prefix {output_prefix} --image-column-name {params['image_column']} --split-index {split_index}{normalize_flag}"
+            cmd = f"preventad-extract-brainlm --dataset {params['input_path']} --model-path {model_path} --model-params {size} --output-dir {output_dir} --output-prefix {output_prefix} --image-column-name {params['image_column']} --split-index {split_index}{normalize_flag}"
             print(f"Running: {cmd}")
             c.run(cmd)
 
@@ -251,7 +251,7 @@ def submit_evaluate(c, model_size="all", preprocessing="all", n_splits=20, dry_r
             command = (
                 f"preventad-extract-brainlm "
                 f"--dataset {cfg['input_path']} "
-                f"--model-path {model_path} "
+                f"--model-path {model_path} --model-params {size} "
                 f"--output-dir {output_dir} "
                 f"--output-prefix {output_prefix} "
                 f"--image-column-name {cfg['image_column']} "
