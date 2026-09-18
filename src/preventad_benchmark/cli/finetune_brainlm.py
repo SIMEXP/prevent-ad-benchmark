@@ -167,7 +167,6 @@ def main():
     train_test_dataset.set_transform(transform_func)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    replace_vitmae_attn_with_flash_attn()
 
     config = ViTMAEConfig.from_pretrained(model_path)
     config.update(model_arguments)
