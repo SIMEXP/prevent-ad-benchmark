@@ -8,7 +8,7 @@ defaults:
 overrides:
   finetune_brainharmonix:
     time: "4:00:00"
-    mem: "24G"
+    mem: "16G"
   finetune_brainlm:
     time: "4:00:00"
-    mem: "24G"
+    mem: "16G"
