@@ -175,7 +175,7 @@ def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, rerun
                 command = f"{finetune_cmd} && \\\n{extract_cmd}"
             else:
                 command = extract_cmd
-                slurm_params["time"] == "01:00:00"
+                slurm_params["time"] = "01:00:00"  # reduce time for prediction-only jobs
 
             submit_job_array(job_name, command, array_range, slurm_params, dry_run=dry_run)
 

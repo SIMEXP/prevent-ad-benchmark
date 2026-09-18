@@ -249,9 +249,14 @@ def main():
     trainer.log_metrics("eval", metrics)
     trainer.save_metrics("eval", metrics)
 
-    # Build a per-epoch {epoch, train_loss, val_loss} list and a config.json in the
-    # same shape BrainHarmonix's finetuning script writes, so both models' learning
-    # curves can be loaded and plotted with the same code (see plotting/learning_curves.py).
+    # Build a per-epoch {epoch, train_loss, val_loss} list and write it in the same
+    # shape BrainHarmonix's finetuning script writes, so both models' learning curves
+    # can be loaded and plotted with the same code (see plotting/learning_curves.py).
+    # Deliberately NOT named config.json: trainer.save_model() already wrote the
+    # model's real ViTMAEConfig (hidden_size, patch_size, ...) to outputs_path/config.json
+    # a few lines above -- overwriting it there silently breaks ViTMAEConfig.from_pretrained
+    # for every later extraction (falls back to the class's built-in defaults, 768/16,
+    # instead of raising, since the file still exists and parses -- it's just missing keys).
     per_epoch = {}
     for entry in trainer.state.log_history:
         epoch = entry.get("epoch")
@@ -283,7 +288,7 @@ def main():
         "batch_size": training_args.per_device_train_batch_size,
         "metrics": epoch_metrics,
     }
-    with open(Path(outputs_path) / "config.json", "w") as f:
+    with open(Path(outputs_path) / "finetune_run_config.json", "w") as f:
         json.dump(finetune_config, f, indent=2)
 
     plot_single_run_curve(

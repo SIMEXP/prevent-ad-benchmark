@@ -68,9 +68,11 @@ def load_brainlm_curves(finetune_dir: Path) -> pd.DataFrame:
         finetune_dir/
           {condition}/           e.g. "zscore_brainlm.650M.selfsupervised"
             split{N}/
-              config.json   ← has "metrics": [{epoch, train_loss, val_loss}, ...]
+              finetune_run_config.json   ← has "metrics": [{epoch, train_loss, val_loss}, ...]
               (written from trainer_state.json's log_history by finetune_brainlm.py,
-              in the same shape as BrainHarmonix's config.json)
+              in the same shape as BrainHarmonix's config.json -- deliberately NOT
+              named config.json, which in this directory is HF Trainer's own
+              ViTMAEConfig architecture file)
 
     Returns a long-form DataFrame with columns:
         condition, split, epoch, train_loss, val_loss
@@ -94,7 +96,7 @@ def load_brainlm_curves(finetune_dir: Path) -> pd.DataFrame:
                 continue
             split_idx = int(m.group(1))
 
-            config_file = split_dir / "config.json"
+            config_file = split_dir / "finetune_run_config.json"
             if not config_file.exists():
                 continue
 
@@ -273,6 +275,56 @@ def plot_brainlm_curves(
 
     axes[0].set_ylabel("Loss")
     fig.suptitle("BrainLM — finetuning learning curves", fontsize=12, y=1.02)
+    fig.tight_layout()
+
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=150, bbox_inches="tight")
+        print(f"Saved → {output_path}")
+
+    return fig
+
+
+def plot_brainlm_curves_by_condition(
+    finetune_dir: Path,
+    output_path: Path | None = None,
+    figsize: tuple = (16, 4),
+) -> plt.Figure:
+    """Plot each BrainLM (atlas x normalization) condition on its own panel,
+    each with its own y-axis scale.
+
+    plot_brainlm_curves overlays both atlas variants on a shared y-axis per
+    zscore/nozscore panel -- fine for comparing them directly, but it visually
+    flattens a small-magnitude condition (e.g. BrainLM atlas, loss ~0.001) next
+    to a much larger-scale one (e.g. Giga atlas, loss ~0.2) sharing the same
+    axis, even when the small one is genuinely decreasing. This gives each of
+    the 4 conditions its own subplot and its own y-axis, so a small real
+    improvement is visible instead of looking like a flat line.
+    """
+    df = load_brainlm_curves(finetune_dir)
+    if df.empty:
+        raise ValueError(f"No BrainLM data found in {finetune_dir}")
+
+    conditions = sorted(df["condition"].unique())
+    colors = {"train_loss": "#1f77b4", "val_loss": "#ff7f0e"}
+
+    fig, axes = plt.subplots(1, len(conditions), figsize=figsize, sharey=False)
+    if len(conditions) == 1:
+        axes = [axes]
+
+    for ax, cond in zip(axes, conditions):
+        sub = df[df["condition"] == cond]
+        label = _BRAINLM_LABELS.get(cond, cond)
+        _plot_mean_band(ax, sub, "epoch", "train_loss", label="Train loss", color=colors["train_loss"])
+        _plot_mean_band(ax, sub, "epoch", "val_loss", label="Val loss", color=colors["val_loss"], linestyle="--")
+        ax.set_title(label, fontsize=9)
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("Loss")
+        ax.legend(fontsize=7)
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle("BrainLM — finetuning learning curves (per condition)", fontsize=12, y=1.05)
     fig.tight_layout()
 
     if output_path is not None:
