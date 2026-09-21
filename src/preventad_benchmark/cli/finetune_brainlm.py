@@ -10,8 +10,7 @@ import json
 from pathlib import Path
 
 from preventad_benchmark.models.brainlm_mae.modeling_vit_mae_with_padding import ViTMAEForPreTraining
-from preventad_benchmark.models.brainlm_mae.replace_vitmae_attn_with_flash_attn import replace_vitmae_attn_with_flash_attn
-from transformers import ViTMAEConfig, Trainer, TrainingArguments
+from transformers import EarlyStoppingCallback, ViTMAEConfig, Trainer, TrainingArguments
 
 from datasets import load_from_disk, DatasetDict
 import numpy as np
@@ -19,6 +18,7 @@ import torch
 from preventad_benchmark.models.brainlm_mae.utils import timeseires_to_images, collate_fn
 from preventad_benchmark.models.brainlm_mae.metrics import MetricsCalculator
 from preventad_benchmark.dataset.utils import compute_normalization_params
+from preventad_benchmark.plotting.learning_curves import plot_single_run_curve
 import argparse
 try:
     from preventad_benchmark.models.brainlm_mae.replace_vitmae_attn_with_flash_attn import replace_vitmae_attn_with_flash_attn
@@ -87,12 +87,38 @@ def main():
         default=False,
         help="Compute and apply dataset-level normalization (for non-zscored data)",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for the train/val split and training (default: 42)",
+    )
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=1e-4,
+        help="Learning rate (default: 1e-4)",
+    )
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=5,
+        help="Stop early if val loss doesn't improve for this many epochs (default: 5)",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=50,
+        help="Maximum number of epochs; early stopping may end training sooner (default: 50)",
+    )
     args = parser.parse_args()
     inputs_path = args.dataset
     outputs_path = args.output_dir
     image_column_name = args.image_column_name
     model_params = args.model_params
     model_path = args.model_path or f"./models/brainlm/vitmae_{model_params}"
+
+    torch.manual_seed(args.seed)
 
     fmri_ds = load_from_disk(inputs_path)
 
@@ -131,7 +157,8 @@ def main():
     # 80/20 train/val split within the training set
     train_val = train_ds.train_test_split(
         test_size=0.2,
-        stratify_by_column=sex_col
+        stratify_by_column=sex_col,
+        seed=args.seed,
     )
     train_test_dataset = DatasetDict({
         'train': train_val['train'],
@@ -140,7 +167,6 @@ def main():
     train_test_dataset.set_transform(transform_func)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    replace_vitmae_attn_with_flash_attn()
 
     config = ViTMAEConfig.from_pretrained(model_path)
     config.update(model_arguments)
@@ -186,12 +212,19 @@ def main():
         output_dir=outputs_path,
         remove_unused_columns=False,
         include_for_metrics=['inputs'],
-        logging_steps=1,
-        num_train_epochs=25,
-        learning_rate=1e-05,
+        eval_strategy="epoch",
+        logging_strategy="epoch",
+        save_strategy="epoch",  # must match eval_strategy for load_best_model_at_end
+        save_total_limit=1,  # keeps the best checkpoint even when trimming, since load_best_model_at_end=True
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
+        num_train_epochs=args.epochs,
+        learning_rate=args.lr,
         weight_decay=0.01,
         per_device_eval_batch_size=4,
         per_device_train_batch_size=4,
+        seed=args.seed,
     )
     # Initialize our trainer
     trainer = Trainer(
@@ -200,7 +233,8 @@ def main():
         train_dataset=train_test_dataset["train"],
         eval_dataset=train_test_dataset["test"],
         data_collator=collate_fn,
-        compute_metrics=metrics_calculator
+        compute_metrics=metrics_calculator,
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)],
     )
 
     train_result = trainer.train()
@@ -213,6 +247,53 @@ def main():
     metrics = trainer.evaluate()
     trainer.log_metrics("eval", metrics)
     trainer.save_metrics("eval", metrics)
+
+    # Build a per-epoch {epoch, train_loss, val_loss} list and write it in the same
+    # shape BrainHarmonix's finetuning script writes, so both models' learning curves
+    # can be loaded and plotted with the same code (see plotting/learning_curves.py).
+    # This overwrites the ViTMAEConfig trainer.save_model() wrote to the same path a
+    # few lines above, but that's fine: extract_brainlm.py sources the architecture
+    # from models/brainlm/vitmae_{model_params}/config.json (the pretrained model),
+    # never from this fine-tuned output directory's own config.json.
+    per_epoch = {}
+    for entry in trainer.state.log_history:
+        epoch = entry.get("epoch")
+        if epoch is None:
+            continue
+        record = per_epoch.setdefault(int(round(epoch)), {})
+        if "loss" in entry:
+            record["train_loss"] = entry["loss"]
+        if "eval_loss" in entry:
+            record["val_loss"] = entry["eval_loss"]
+
+    epoch_metrics = [
+        {"epoch": epoch, **record}
+        for epoch, record in sorted(per_epoch.items())
+        if "train_loss" in record and "val_loss" in record
+    ]
+    best_val_loss = min(
+        (record["val_loss"] for record in epoch_metrics),
+        default=metrics.get("eval_loss"),
+    )
+
+    finetune_config = {
+        "task": "self-supervised",
+        "target": None,
+        "best_metric_value": best_val_loss,
+        "metric_key": "loss",
+        "epochs": len(epoch_metrics),  # actual epochs run, which early stopping may cut short of num_train_epochs
+        "lr": training_args.learning_rate,
+        "batch_size": training_args.per_device_train_batch_size,
+        "metrics": epoch_metrics,
+    }
+    with open(Path(outputs_path) / "config.json", "w") as f:
+        json.dump(finetune_config, f, indent=2)
+
+    plot_single_run_curve(
+        epoch_metrics,
+        Path(outputs_path) / "learning_curve.png",
+        title=f"BrainLM finetuning — split {args.split_index}",
+    )
 
 
 if __name__ == "__main__":

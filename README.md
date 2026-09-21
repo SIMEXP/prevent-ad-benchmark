@@ -35,7 +35,7 @@ Data Preparation  ->  Evaluation  ->  Reports
 
 | Task | Description |
 |------|-------------|
-| `baseline.run` | Evaluate raw timeseries (PCA->75) + functional connectivity with SVM & Linear models |
+| `baseline.run` | Evaluate raw timeseries (PCA->75) + functional connectivity with linear models, plus a dummy chance-level reference |
 
 **BrainLM** (`inv brainlm.*`): 4 preprocessing variants (2 atlases x 2 z-score settings) x 2 model sizes (111M, 650M) x 20 splits
 
@@ -59,7 +59,7 @@ Data Preparation  ->  Evaluation  ->  Reports
 
 ```
 Arrow Dataset -> Feature Extraction -> Classifiers -> Scores -> Summary Tables
-          (Timeseries / FC / embeddings)  (SVM, Linear)   (per split)  (mean + 95% CI)
+          (Timeseries / FC / embeddings)  (Linear)        (per split)  (mean + 95% CI)
 ```
 
 **Prediction targets**: 8 targets spanning demographics, cognition, and amyloid pathology:
@@ -74,15 +74,14 @@ Classification vs regression is auto-detected from label type (string -> classif
 **Baseline evaluation**: classical features extracted directly from the Arrow dataset:
 - *Timeseries*: flattened ROI timeseries reduced to 75 PCA components
 - *Functional connectivity*: correlation-based connectivity vectors (vectorized, diagonal discarded)
-- Evaluated with 20-fold stratified shuffle cross-validation using SVM, Linear, and Dummy classifiers
+- Evaluated with 20-fold stratified shuffle cross-validation using Linear and Dummy classifiers
 
 **Foundation model evaluation**: learned embeddings from pretrained or fine-tuned models:
 - *BrainLM*: CLS Token, CLS Embedding, Mean Embedding, Max Embedding
 - *BrainHarmonix*: fMRI (mean), T1 (mean), Harmonizer (CLS), Harmonizer (latent)
-- Evaluated on a precomputed train/test split (one per fold) using SVM and Linear classifiers
+- Evaluated on a precomputed train/test split (one per fold) using a Linear classifier
 
 **Classifiers:**
-- **SVM**: `SVC` (balanced class weights) / `SVR`, with `RobustScaler`
 - **Linear**: `LogisticRegression` / `LinearRegression`, with `RobustScaler`
 - **Dummy**: `most_frequent` / `mean` strategy as chance-level reference (baseline only)
 
@@ -92,13 +91,17 @@ Classification vs regression is auto-detected from label type (string -> classif
 |----------------|------------|
 | Accuracy, AUC, F1, Precision | RMSE, MAE, R² |
 
-Results are reported as mean with 95% confidence interval (2.5th–97.5th percentile) across splits.
+Results are reported as mean with 95% confidence interval (2.5th–97.5th percentile) across splits, each as its own column (`METRIC`, `METRIC_CI_LOW`, `METRIC_CI_HIGH`).
+
+For classification, accuracy and precision are additionally tested against the Schaefer400 functional-connectivity baseline and the dummy-classifier baseline with a one-sided Welch's t-test (`METRIC_T_VS_FC`/`METRIC_DF_VS_FC`/`METRIC_P_VS_FC`/`METRIC_SIG_VS_FC`, and the same four for `DUMMY`; `T` = Welch's t statistic, `DF` = Welch–Satterthwaite degrees of freedom, `SIG` = p < 0.05), testing whether a model's performance significantly exceeds each baseline. The test is unpaired: baseline results come from independent cross-validation folds, while foundation-model results come from the fixed train/test splits, so the two aren't matched samples.
 
 ### Stage 3: Reports (`inv reports.*`)
 
 | Task | Description |
 |------|-------------|
-| `reports.generate-summary` | Aggregate results across splits into mean +/- 95% CI tables |
+| `reports.generate-summary` | Aggregate results across splits into mean +/- 95% CI tables, with t-tests against baselines |
+| `reports.plot-learning-curves` | Plot fine-tuning train/val loss curves (per split, per condition, and combined) |
+| `reports.plot-classification` | Per-target bar charts of classification accuracy/precision, ranked against baselines |
 
 ## Project Structure
 
@@ -107,7 +110,7 @@ Results are reported as mean with 95% confidence interval (2.5th–97.5th percen
 │   ├── config.py                # Centralized paths, model configs, constants
 │   ├── cli/                     # CLI entry points (extract, finetune, evaluate)
 │   ├── dataset/                 # Data loading, phenotype, train/test splits
-│   ├── evaluation/              # Downstream pipelines (SVM, linear), targets
+│   ├── evaluation/              # Downstream pipelines (linear, dummy), targets
 │   ├── models/                  # BrainLM and BrainHarmonix model code
 │   └── plotting/                # Visualization utilities
 ├── tasks/                       # Invoke task definitions
@@ -165,6 +168,8 @@ uv venv
 uv sync --extra build
 ```
 
+`flash-attn` compiles from source against a real CUDA toolkit (`CUDA_HOME`) -- this fails on a CPU-only machine or a plain login node. Run `uv sync` on a GPU node (e.g. via `salloc` on Fir) if you hit a `CUDA_HOME environment variable is not set` error.
+
 ### Post-install fix for brainharmonix
 
 The `brainharmonix` package includes an internal `datasets` module that conflicts with the HuggingFace `datasets` library. After running `uv sync`, remove it:
@@ -194,7 +199,7 @@ uv run inv prepare.timeseries -w gigaconnectome -a a424 -f data/interim/dataset-
 uv run inv prepare.timeseries -w brainlm -a a424 -f data/interim/dataset-preventad.fmri.NoZscore
 uv run inv prepare.split
 
-# 2. Run evaluation in interactive session
+# 2. Run evaluation (feature extraction from frozen pretrained weights)
 uv run inv baseline.run  # this will create the chance level results and the FC baseline
 uv run inv brainlm.evaluate
 uv run inv brainharmonix.evaluate
@@ -203,9 +208,21 @@ uv run inv brainharmonix.evaluate
 uv run inv brainlm.submit-evaluate
 uv run inv brainharmonix.submit-evaluate
 
-# 3. Generate summary tables
-uv run inv reports.generate-summary
+# 2c. Fine-tune (single split, interactive -- for debugging before a full submission)
+uv run inv brainlm.finetune --preprocessing=brainlm --model-params=650M --split-index=0
+uv run inv brainharmonix.finetune --split-index=0
+
+# 2d. Or submit SLURM job arrays for fine-tuning + downstream prediction across all splits
+uv run inv brainlm.submit-finetune --model-size=650M --preprocessing=all --n-splits=20 --rerun-finetune=True
+uv run inv brainharmonix.submit-finetune --n-splits=20 --rerun-finetune=True
+
+# 3. Generate summary tables and figures
+uv run inv reports.generate-summary --experiment all
+uv run inv reports.plot-learning-curves
+uv run inv reports.plot-classification
 ```
+
+Fine-tuning uses early stopping by default (`--patience=5` epochs of no val-loss improvement, up to `--epochs=50`); BrainLM also takes `--lr` (default `1e-4`). `--rerun-finetune` defaults to `False` on the `submit-finetune` tasks, which only reruns the downstream-prediction step against an *existing* fine-tuned checkpoint -- pass `--rerun-finetune=True` explicitly to actually fine-tune.
 
 Use `--dry-run` on submit tasks to preview SLURM scripts without submitting.
 
@@ -235,24 +252,26 @@ Key settings in `src/preventad_benchmark/config.py`:
 
 ## SLURM Submission
 
-SLURM resource settings are in `slurm_config.yaml`:
+Currently configured for the [Fir](https://docs.alliancecan.ca/wiki/Fir) cluster. SLURM resource settings are in `slurm_config.yaml`:
 
 ```yaml
 defaults:
-  account: rrg-pbellec
-  time: "0:10:00"
-  mem: "8G"
+  account: def-hwang1
+  time: "1:00:00"  # Fir enforces a 1-hour minimum walltime
+  mem: "24G"
   cpus_per_task: 4
-  gres: "gpu:1"
+  gpus_per_node: "nvidia_h100_80gb_hbm3_2g.20gb:1"  # a MIG slice; use "h100:1" for a full H100
 
 overrides:
   finetune_brainharmonix:
     time: "4:00:00"
-    mem: "32G"
+    mem: "16G"
   finetune_brainlm:
-    time: "24:00:00"
-    mem: "64G"
+    time: "4:00:00"
+    mem: "16G"
 ```
+
+Note: Fir GPUs are requested with `--gpus-per-node=<type>:<count>`, not the older `--gres=gpu:<count>` syntax used on some other Alliance clusters. If migrating this config to a different cluster, check its docs for the current GPU-request syntax and walltime limits first.
 
 Submit tasks generate SLURM scripts in `scripts/` and submit job arrays (one job per split).
 

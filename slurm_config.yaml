@@ -1,14 +1,14 @@
 defaults:
-  account: rrg-pbellec
-  time: "0:10:00"
+  account: def-hwang1
+  time: "1:00:00"  # Fir enforces a 1-hour minimum walltime
   mem: "24G"
   cpus_per_task: 4
-  gres: "gpu:1"
+  gpus_per_node: "nvidia_h100_80gb_hbm3_2g.20gb:1"
 
 overrides:
   finetune_brainharmonix:
-    time: "1:00:00"
-    mem: "24G"
+    time: "4:00:00"
+    mem: "16G"
   finetune_brainlm:
-    time: "1:00:00"
-    mem: "24G"
+    time: "4:00:00"
+    mem: "16G"

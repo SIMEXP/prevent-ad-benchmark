@@ -34,7 +34,7 @@ def load_slurm_config(task_name=None):
     return params
 
 
-SCRATCH_LOGS_DIR = Path("/scratch/hwang1/prevent-ad-benchmark/logs")
+SCRATCH_LOGS_DIR = Path.home() / "scratch/prevent-ad-benchmark/logs"
 
 
 def _ensure_logs_dir():
@@ -70,11 +70,11 @@ def submit_job_array(job_name, command_template, array_range, slurm_params, dry_
     SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
     _ensure_logs_dir()
 
-    account = slurm_params.get("account", "rrg-pbellec")
+    account = slurm_params.get("account", "def-hwang1")
     time = slurm_params.get("time", "4:00:00")
     mem = slurm_params.get("mem", "32G")
     cpus = slurm_params.get("cpus_per_task", 4)
-    gres = slurm_params.get("gres", "gpu:1")
+    gpus_per_node = slurm_params.get("gpus_per_node", "nvidia_h100_80gb_hbm3_2g.20gb:1")
 
     lines = [
         "#!/bin/bash",
@@ -83,7 +83,7 @@ def submit_job_array(job_name, command_template, array_range, slurm_params, dry_
         f"#SBATCH --time={time}",
         f"#SBATCH --mem={mem}",
         f"#SBATCH --cpus-per-task={cpus}",
-        f"#SBATCH --gres={gres}",
+        f"#SBATCH --gpus-per-node={gpus_per_node}",
         f"#SBATCH --array={array_range}",
         f"#SBATCH --output=logs/{job_name}_%A_%a.out",
         f"#SBATCH --error=logs/{job_name}_%A_%a.err",

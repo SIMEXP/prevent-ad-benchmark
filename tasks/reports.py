@@ -3,12 +3,15 @@
 This module contains invoke tasks for generating result visualizations.
 """
 from pathlib import Path
+import pandas as pd
 from preventad_benchmark.plotting.utils import load_results, make_summary_table
 from preventad_benchmark.plotting.learning_curves import (
     plot_brainharmony_curves,
     plot_brainlm_curves,
+    plot_brainlm_curves_by_condition,
     plot_combined_curves,
 )
+from preventad_benchmark.plotting.classification_summary import plot_classification_summary
 import invoke
 
 
@@ -36,8 +39,7 @@ INPUT_DIRS = {
 def plot_learning_curves(c, model="combined", output_dir=None):
     """Plot finetuning learning curves from saved trainer state files.
 
-    BrainHarmony: train + val loss per epoch (from config.json).
-    BrainLM: training loss per epoch only (val loss was not logged).
+    Both BrainHarmony and BrainLM report train + val loss per epoch (from config.json).
 
     Examples::
 
@@ -50,18 +52,36 @@ def plot_learning_curves(c, model="combined", output_dir=None):
     bh_dir = PROJECT_ROOT / "outputs/finetune/brainharmonix"
     bl_dir = PROJECT_ROOT / "outputs/finetune/brainlm"
 
+    def _try(label, fn, **kwargs):
+        try:
+            fn(**kwargs)
+        except ValueError as e:
+            print(f"Skipping {label}: {e}")
+
     if model in ("brainharmony", "combined"):
-        plot_brainharmony_curves(
+        _try(
+            "BrainHarmony curves",
+            plot_brainharmony_curves,
             finetune_dir=bh_dir,
             output_path=out_dir / "brainharmony_learning_curves.png",
         )
     if model in ("brainlm", "combined"):
-        plot_brainlm_curves(
+        _try(
+            "BrainLM curves",
+            plot_brainlm_curves,
             finetune_dir=bl_dir,
             output_path=out_dir / "brainlm_learning_curves.png",
         )
+        _try(
+            "BrainLM curves by condition",
+            plot_brainlm_curves_by_condition,
+            finetune_dir=bl_dir,
+            output_path=out_dir / "brainlm_learning_curves_by_condition.png",
+        )
     if model == "combined":
-        plot_combined_curves(
+        _try(
+            "combined curves",
+            plot_combined_curves,
             brainharmony_finetune_dir=bh_dir,
             brainlm_finetune_dir=bl_dir,
             output_path=out_dir / "combined_learning_curves.png",
@@ -87,4 +107,35 @@ def generate_summary(c, experiment='baselines', output_dir=PROJECT_ROOT / 'outpu
     else:
         input_dirs = INPUT_DIRS[experiment]
     df = load_results(input_dirs)
-    make_summary_table(df, output_dir=output_dir / experiment)
+    # Always load baselines separately for the vs-FC/vs-dummy t-tests, even when
+    # summarizing a single foundation model's own results (which wouldn't
+    # otherwise include the baseline/dummy rows to compare against).
+    baseline_df = df if experiment in ('all', 'baselines') else load_results(INPUT_DIRS['baselines'])
+    make_summary_table(df, output_dir=output_dir / experiment, baseline_df=baseline_df)
+
+
+@invoke.task(
+    help={
+        "output-dir": "Directory to save figures (default: outputs/reports/classification_summary/)",
+    }
+)
+def plot_classification(c, output_dir=None):
+    """Plot per-target classification summary bar charts (accuracy + precision),
+    ranked against the Schaefer400 functional-connectivity and dummy baselines.
+
+    Requires `inv reports.generate-summary --experiment all` (or any experiment
+    that includes both a foundation model and the baselines) to have been run
+    first, since this reads summary_classification.tsv.
+
+    Example:
+        inv reports.generate-summary --experiment all
+        inv reports.plot-classification
+    """
+    out_dir = Path(output_dir) if output_dir else PROJECT_ROOT / "outputs/reports/classification_summary"
+    summary_path = PROJECT_ROOT / "outputs/reports/all/summary_classification.tsv"
+    if not summary_path.exists():
+        raise FileNotFoundError(
+            f"{summary_path} not found -- run `inv reports.generate-summary --experiment all` first."
+        )
+    df = pd.read_csv(summary_path, sep="\t")
+    plot_classification_summary(df, output_dir=out_dir)

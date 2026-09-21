@@ -212,18 +212,90 @@ def _cal_mean_ci95(values):
     sd = values.std(ddof=1)
     n = len(values)
     ci_lower, ci_upper = stats.t.interval(
-        0.95, 
-        df=n-1, 
-        loc=mean, 
+        0.95,
+        df=n-1,
+        loc=mean,
         scale=sd / np.sqrt(n)
     )
     return mean, ci_lower, ci_upper
 
 
-def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFrame:
-    """Create summary table with mean and CI95% for all metrics."""
+def _ttest_greater(values, reference_values):
+    """One-sided Welch's t-test: does `values` exceed `reference_values`?
+
+    Unpaired, since baseline results come from independent StratifiedShuffleSplit
+    CV folds (pipelines.py) while foundation-model results come from the fixed
+    train_test_split.json partitions -- these are not matched samples, so a
+    paired test would be invalid. Welch's (equal_var=False) avoids assuming
+    the two groups have equal variance.
+
+    Returns (t_statistic, degrees_of_freedom, p_value). The t statistic is
+    positive when `values` has the higher mean; the degrees of freedom are the
+    (generally fractional) Welch-Satterthwaite approximation. All three are NaN
+    if either group has fewer than 2 samples or scipy can't compute them (e.g.
+    zero variance).
+    """
+    values = np.asarray(values, dtype=float)
+    reference_values = np.asarray(reference_values, dtype=float)
+    if len(values) < 2 or len(reference_values) < 2:
+        return np.nan, np.nan, np.nan
+    try:
+        result = stats.ttest_ind(values, reference_values, equal_var=False, alternative='greater')
+    except (ValueError, ZeroDivisionError):
+        return np.nan, np.nan, np.nan
+    if np.isnan(result.statistic) or np.isnan(result.pvalue):
+        # scipy still returns a placeholder df (1.0) when the test is undefined
+        return np.nan, np.nan, np.nan
+    return result.statistic, result.df, result.pvalue
+
+
+def _get_baseline_group(baseline_df, feature, target, atlas='Schaefer400'):
+    """Select one baseline comparison group's raw per-split rows.
+
+    Restricted to `atlas` (default Schaefer400) since the baseline experiments
+    were run once per atlas (Schaefer400 for brainharmonix, A424 for brainlm)
+    and mixing them would compare against the wrong feature set.
+    """
+    if baseline_df is None or baseline_df.empty:
+        return None
+    mask = (
+        (baseline_df['variation'] == 'baseline')
+        & (baseline_df['feature'] == feature)
+        & (baseline_df['atlas'] == atlas)
+        & (baseline_df['target'] == target)
+    )
+    matched = baseline_df[mask]
+    return matched if not matched.empty else None
+
+
+def make_summary_table(df: pd.DataFrame, output_dir: Path = None, baseline_df: pd.DataFrame = None) -> pd.DataFrame:
+    """Create summary table with mean and CI95% for all metrics, split into
+    separate columns (`METRIC`, `METRIC_CI_LOW`, `METRIC_CI_HIGH`).
+
+    For classification results, also runs a one-sided t-test (see _ttest_greater)
+    on accuracy and precision against the Schaefer400 functional-connectivity
+    baseline and the dummy-classifier baseline, adding `METRIC_T_VS_FC`/
+    `METRIC_DF_VS_FC`/`METRIC_P_VS_FC`/`METRIC_SIG_VS_FC` and `METRIC_T_VS_DUMMY`/
+    `METRIC_DF_VS_DUMMY`/`METRIC_P_VS_DUMMY`/`METRIC_SIG_VS_DUMMY` columns
+    (T = Welch's t statistic, DF = Welch-Satterthwaite degrees of freedom,
+    SIG = p < 0.05). Baseline/dummy rows themselves are skipped (comparing a
+    baseline against itself isn't meaningful) and get NaN in these columns.
+
+    Args:
+        df: results to summarize (from load_results).
+        output_dir: if given, writes summary_classification.tsv / summary_regression.tsv here.
+        baseline_df: results to compare against for the t-tests. Defaults to `df`
+            itself, so callers that already include baseline rows in `df` (e.g.
+            experiment='all' or 'baselines') don't need to pass anything extra;
+            callers summarizing only a foundation model's own results (e.g.
+            experiment='brainharmonix') should pass the baseline results here
+            explicitly so the comparison has something to compare against.
+    """
+    if baseline_df is None:
+        baseline_df = df
+
     summary_records = []
-    
+
     for (foundation_model, variation, feature, target, classifier, atlas), group in df.groupby(['foundation_model', 'variation', 'feature', 'target', 'classifier', 'atlas']):
         record = {
             'Foundation Model': foundation_model,
@@ -237,11 +309,29 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFram
         if group['task_type'].iloc[0] == 'classification':
             for metric in ['accuracy', 'auc', 'f1', 'precision']:
                 mean, ci_lower, ci_upper = _cal_mean_ci95(group[metric])
-                record[metric.upper()] = f'{mean:.3f} [{ci_lower:.3f} {ci_upper:.3f}]'
+                record[metric.upper()] = mean
+                record[f'{metric.upper()}_CI_LOW'] = ci_lower
+                record[f'{metric.upper()}_CI_HIGH'] = ci_upper
+
+            is_baseline_row = variation == 'baseline'
+            fc_group = None if is_baseline_row else _get_baseline_group(baseline_df, 'connectivity', target)
+            dummy_group = None if is_baseline_row else _get_baseline_group(baseline_df, 'dummy', target)
+            for metric in ['accuracy', 'precision']:
+                for ref_name, ref_group in [('FC', fc_group), ('DUMMY', dummy_group)]:
+                    if ref_group is not None:
+                        t_stat, dof, p_value = _ttest_greater(group[metric], ref_group[metric])
+                    else:
+                        t_stat, dof, p_value = np.nan, np.nan, np.nan
+                    record[f'{metric.upper()}_T_VS_{ref_name}'] = t_stat
+                    record[f'{metric.upper()}_DF_VS_{ref_name}'] = dof
+                    record[f'{metric.upper()}_P_VS_{ref_name}'] = p_value
+                    record[f'{metric.upper()}_SIG_VS_{ref_name}'] = (p_value < 0.05) if pd.notna(p_value) else np.nan
         else:
             for metric, col in [('RMSE', 'rmse'), ('MAE', 'mae'), ('R²', 'r2')]:
                 mean, ci_lower, ci_upper = _cal_mean_ci95(group[col])
-                record[metric] = f'{mean:.3f} [{ci_lower:.3f} {ci_upper:.3f}]'
+                record[metric] = mean
+                record[f'{metric}_CI_LOW'] = ci_lower
+                record[f'{metric}_CI_HIGH'] = ci_upper
         summary_records.append(record)
 
     summary_df = pd.DataFrame(summary_records)
@@ -249,15 +339,25 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None) -> pd.DataFram
     if output_dir:
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        clf_cols = ['Foundation Model', 'Atlas', 'Variation', 'Feature', 'Target', 'Classifier', 'ACCURACY', 'AUC', 'F1', 'PRECISION']
-        reg_cols = ['Foundation Model', 'Atlas', 'Variation', 'Feature', 'Target', 'Classifier', 'RMSE', 'MAE', 'R²']
+        clf_metric_cols = []
+        for metric in ['ACCURACY', 'AUC', 'F1', 'PRECISION']:
+            clf_metric_cols += [metric, f'{metric}_CI_LOW', f'{metric}_CI_HIGH']
+        for metric in ['ACCURACY', 'PRECISION']:
+            for ref_name in ['FC', 'DUMMY']:
+                clf_metric_cols += [f'{metric}_T_VS_{ref_name}', f'{metric}_DF_VS_{ref_name}', f'{metric}_P_VS_{ref_name}', f'{metric}_SIG_VS_{ref_name}']
+        clf_cols = ['Foundation Model', 'Atlas', 'Variation', 'Feature', 'Target', 'Classifier'] + clf_metric_cols
+
+        reg_metric_cols = []
+        for metric in ['RMSE', 'MAE', 'R²']:
+            reg_metric_cols += [metric, f'{metric}_CI_LOW', f'{metric}_CI_HIGH']
+        reg_cols = ['Foundation Model', 'Atlas', 'Variation', 'Feature', 'Target', 'Classifier'] + reg_metric_cols
 
         clf_df = summary_df[summary_df['ACCURACY'].notna()][
             [c for c in clf_cols if c in summary_df.columns]
-        ]
+        ] if 'ACCURACY' in summary_df.columns else pd.DataFrame()
         reg_df = summary_df[summary_df['RMSE'].notna()][
             [c for c in reg_cols if c in summary_df.columns]
-        ]
+        ] if 'RMSE' in summary_df.columns else pd.DataFrame()
 
         if not clf_df.empty:
             clf_df.to_csv(output_dir / 'summary_classification.tsv', index=False, sep='\t')

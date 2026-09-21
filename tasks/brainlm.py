@@ -49,6 +49,9 @@ EXTRACTOION_PARAM = {
         "preprocessing": "Preprocessing type: brainlm, brainlm_z, gigaconnectome, or gigaconnectome_z (default: brainlm)",
         "model-params": "Model size: 111M or 650M (default: 650M)",
         "split-index": "Index of the train/test split (default: 0)",
+        "lr": "Learning rate (default: 1e-4)",
+        "patience": "Stop early if val loss doesn't improve for this many epochs (default: 5)",
+        "epochs": "Maximum number of epochs; early stopping may end training sooner (default: 50)",
     }
 )
 def finetune(
@@ -56,6 +59,9 @@ def finetune(
     preprocessing="brainlm",
     model_params="650M",
     split_index=0,
+    lr=1e-4,
+    patience=5,
+    epochs=50,
 ):
     """Fine-tune BrainLM ViT-MAE model and extract finetuned features.
 
@@ -65,18 +71,21 @@ def finetune(
     Example:
         inv brainlm.finetune
         inv brainlm.finetune --preprocessing=gigaconnectome --model-params=650M
+        inv brainlm.finetune --lr=5e-5
+        inv brainlm.finetune --patience=10
+        inv brainlm.finetune --epochs=50
     """
     cfg = EXTRACTOION_PARAM[preprocessing]
     input_path = str(cfg["input_path"])
     image_column = cfg["image_column"]
     output_suffix = cfg["output_suffix"]
-    output_path = str(DEFAULT_OUTPUT_DIR / f"finetune/brainlm/{output_suffix}.{model_params}.selfsupervised/{split_index}")
+    output_path = str(DEFAULT_OUTPUT_DIR / f"finetune/brainlm/{output_suffix}.{model_params}.selfsupervised/split{split_index}")
 
     normalize_flag = " --normalize" if cfg.get("normalize") else ""
     cmd = (
         f"preventad-finetune-brainlm --dataset {input_path} "
         f"--output-dir {output_path} --image-column-name {image_column} "
-        f"--model-params {model_params} --split-index {split_index}"
+        f"--model-params {model_params} --split-index {split_index} --lr {lr} --patience {patience} --epochs {epochs}"
         f"{normalize_flag}"
     )
     print(f"Running: {cmd}")
@@ -87,7 +96,7 @@ def finetune(
     extract_prefix = f"{output_suffix}.brainlm{model_params}.finetuned"
     extract_cmd = (
         f"preventad-extract-brainlm --dataset {input_path} "
-        f"--model-path {output_path} --output-dir {extract_dir} "
+        f"--model-path {output_path} --model-params {model_params} --output-dir {extract_dir} "
         f"--output-prefix {extract_prefix} --image-column-name {image_column} "
         f"--split-index {split_index}{normalize_flag}"
     )
@@ -101,9 +110,12 @@ def finetune(
         "preprocessing": "Preprocessing type: brainlm, brainlm_z, gigaconnectome, gigaconnectome_z, or all (default: all)",
         "n-splits": "Number of train/test splits (default: 20)",
         "dry-run": "Print generated scripts without submitting (default: False)",
+        "lr": "Learning rate (default: 1e-4)",
+        "patience": "Stop early if val loss doesn't improve for this many epochs (default: 5)",
+        "epochs": "Maximum number of epochs; early stopping may end training sooner (default: 50)",
     }
 )
-def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, rerun_finetune=False, dry_run=False):
+def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, rerun_finetune=False, dry_run=False, lr=1e-4, patience=5, epochs=50):
     """Submit SLURM job arrays for BrainLM fine-tuning + finetuned feature extraction.
 
     Each array task fine-tunes BrainLM on one train/test split,
@@ -113,9 +125,17 @@ def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, rerun
         inv brainlm.submit-finetune
         inv brainlm.submit-finetune --model-size=650M --preprocessing=brainlm
         inv brainlm.submit-finetune --dry-run
+        inv brainlm.submit-finetune --lr=5e-5
+        inv brainlm.submit-finetune --patience=10
+        inv brainlm.submit-finetune --epochs=50
     """
     slurm_params = load_slurm_config("finetune_brainlm")
     array_range = f"0-{n_splits - 1}"
+
+    if rerun_finetune:
+        print("WARNING: This will re-run fine-tuning for all splits, which may be time-consuming. Make sure to set --rerun-finetune=False if you only want to re-run the prediction step with existing fine-tuned checkpoints.")
+    else:
+        print("Only re-running prediction with existing fine-tuned checkpoints. Make sure to set --rerun-finetune=True if you want to re-run fine-tuning for all splits.")
 
     sizes = ["111M", "650M"] if model_size == "all" else [model_size]
     preps = ["brainlm", "brainlm_z", "gigaconnectome", "gigaconnectome_z"] if preprocessing == "all" else [preprocessing]
@@ -137,14 +157,14 @@ def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, rerun
                 f"--output-dir {finetune_dir}/split$SLURM_ARRAY_TASK_ID "
                 f"--image-column-name {cfg['image_column']} "
                 f"--model-params {size} "
-                f"--split-index $SLURM_ARRAY_TASK_ID"
+                f"--split-index $SLURM_ARRAY_TASK_ID --lr {lr} --patience {patience} --epochs {epochs}"
                 f"{normalize_flag}"
             )
             extract_prefix = f"{output_suffix}.brainlm{size}.finetuned"
             extract_cmd = (
                 f"preventad-extract-brainlm "
                 f"--dataset {input_path} "
-                f"--model-path {finetune_dir}/split$SLURM_ARRAY_TASK_ID "
+                f"--model-path {finetune_dir}/split$SLURM_ARRAY_TASK_ID --model-params {size} "
                 f"--output-dir {extract_dir} "
                 f"--output-prefix {extract_prefix} "
                 f"--image-column-name {cfg['image_column']} "
@@ -155,6 +175,7 @@ def submit_finetune(c, model_size="all", preprocessing="all", n_splits=20, rerun
                 command = f"{finetune_cmd} && \\\n{extract_cmd}"
             else:
                 command = extract_cmd
+                slurm_params["time"] = "01:00:00"  # reduce time for prediction-only jobs
 
             submit_job_array(job_name, command, array_range, slurm_params, dry_run=dry_run)
 
@@ -190,7 +211,7 @@ def evaluate(c, model_size="650M", preprocessing="all", split_index=0):
             output_prefix = f"{params['output_suffix']}.brainlm{size}"
 
             normalize_flag = " --normalize" if params.get("normalize") else ""
-            cmd = f"preventad-extract-brainlm --dataset {params['input_path']} --model-path {model_path} --output-dir {output_dir} --output-prefix {output_prefix} --image-column-name {params['image_column']} --split-index {split_index}{normalize_flag}"
+            cmd = f"preventad-extract-brainlm --dataset {params['input_path']} --model-path {model_path} --model-params {size} --output-dir {output_dir} --output-prefix {output_prefix} --image-column-name {params['image_column']} --split-index {split_index}{normalize_flag}"
             print(f"Running: {cmd}")
             c.run(cmd)
 
@@ -212,8 +233,7 @@ def submit_evaluate(c, model_size="all", preprocessing="all", n_splits=20, dry_r
         inv brainlm.submit-evaluate --dry-run
     """
     slurm_params = load_slurm_config("extract_brainlm")
-    # array_range = f"0-{n_splits - 1}"
-    array_range = "0-5"
+    array_range = f"0-{n_splits - 1}"
 
     sizes = ["111M", "650M"] if model_size == "all" else [model_size]
     preps = ["brainlm", "brainlm_z", "gigaconnectome", "gigaconnectome_z"] if preprocessing == "all" else [preprocessing]
@@ -231,7 +251,7 @@ def submit_evaluate(c, model_size="all", preprocessing="all", n_splits=20, dry_r
             command = (
                 f"preventad-extract-brainlm "
                 f"--dataset {cfg['input_path']} "
-                f"--model-path {model_path} "
+                f"--model-path {model_path} --model-params {size} "
                 f"--output-dir {output_dir} "
                 f"--output-prefix {output_prefix} "
                 f"--image-column-name {cfg['image_column']} "

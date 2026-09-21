@@ -61,7 +61,7 @@ def run_baseline_experiment(input_dir, output_dir):
 
 
 def run_foundation_model_experiment(train_features, train_labels, test_features, test_labels, prefix, pca_components=None):
-    """Fit SVM + linear on test-set embeddings and score.
+    """Fit a linear model on test-set embeddings and score.
 
     Due to resource constraint, this function runs one CV split. 
     Summary of these CV slpits are done at a late stage. 
@@ -87,10 +87,12 @@ def run_foundation_model_experiment(train_features, train_labels, test_features,
             continue
 
         print(f"  Running {prefix} -> {target_name}...")
-        svm_scores = svm_fit_score(x_train, y_train, x_test, y_test, pca_components=pca_components)
+        # svm_scores = svm_fit_score(x_train, y_train, x_test, y_test, pca_components=pca_components)
         linear_scores = linear_fit_score(x_train, y_train, x_test, y_test, pca_components=pca_components)
-        results = pd.DataFrame([svm_scores, linear_scores])
-        results["Classifier"] = ["SVM", "Linear"]
+        # results = pd.DataFrame([svm_scores, linear_scores])
+        # results["Classifier"] = ["SVM", "Linear"]
+        results = pd.DataFrame([linear_scores])
+        results["Classifier"] = ["Linear"]
         results["Target"] = TARGET_NAMES[target_name]
         all_results.append(results)
     return pd.concat(all_results).reset_index(drop=True)

@@ -210,7 +210,9 @@ Examples:
 
     # Load models
     print("\nLoading models...")
-    harmonizer = load_harmonizer(args.harmonizer_ckpt, device, mode="inference")
+    harmonizer = load_harmonizer(
+        args.harmonizer_ckpt, device, mode="inference", is_finetuned=args.is_finetuned
+    )
     fmri_encoder = load_fmri_encoder(
         args.fmri_ckpt,
         args.gradient_path,

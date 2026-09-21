@@ -93,7 +93,21 @@ def main():
         "--model-path",
         type=str,
         required=True,
-        help="Path to pretrained BrainLM model",
+        help="Path to the model checkpoint to load weights from (original pretrained or fine-tuned output dir)",
+    )
+    parser.add_argument(
+        "--model-params",
+        required=True,
+        choices=["111M", "650M"],
+        help=(
+            "BrainLM model size. Used to source the architecture config from "
+            "models/brainlm/vitmae_{size}/config.json -- deliberately NOT read from "
+            "--model-path's own config.json, since a fine-tuned output directory is a "
+            "derived artifact (and historically could have its architecture fields "
+            "clobbered by finetune_brainlm.py writing its own metrics there under the "
+            "same filename); the original pretrained model's config is the one "
+            "authoritative source for what the architecture actually is."
+        ),
     )
     parser.add_argument(
         "--output-dir",
@@ -139,8 +153,12 @@ def main():
         print(f"{output_path} exists, skip")
         return
 
-    # load model
-    config = ViTMAEConfig.from_pretrained(model_path)
+    # Source the architecture config from the original pretrained model directory,
+    # not from --model-path: a fine-tuned output directory's config.json is a derived
+    # artifact, not an authoritative source of the architecture (see --model-params
+    # help text). Weights still load from --model-path below.
+    pretrained_dir = f"./models/brainlm/vitmae_{args.model_params}"
+    config = ViTMAEConfig.from_pretrained(pretrained_dir)
     config.update(MODEL_ARGUMENTS)
     model = ViTMAEForPreTraining.from_pretrained(
             model_path,
