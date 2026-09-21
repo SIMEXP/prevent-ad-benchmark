@@ -146,7 +146,7 @@ def dummy_pipeline(x, y, n_splits=EVALUATION_N_SPLITS, pca_components=None):
 
 
 def baseline_pipeline(features, labels, output_dir, prefix, pca_components=None):
-    """Run SVM + linear pipelines for all targets and save results.
+    """Run linear (and dummy) pipelines for all targets and save results.
 
     Args:
         features: (N, D) array of feature vectors.

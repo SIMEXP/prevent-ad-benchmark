@@ -24,7 +24,7 @@ BRAINLM_BASELINE_FEATURE = Path("data/processed/dataset-preventad.fmri.zscored.g
 def run(c, experiment="all"):
     """Run baseline downstream prediction experiments.
 
-    Uses SVM and linear models with cross-validation.
+    Uses linear models (plus a dummy reference) with cross-validation.
 
     Example:
         inv baseline.run
