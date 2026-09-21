@@ -227,18 +227,26 @@ def _ttest_greater(values, reference_values):
     CV folds (pipelines.py) while foundation-model results come from the fixed
     train_test_split.json partitions -- these are not matched samples, so a
     paired test would be invalid. Welch's (equal_var=False) avoids assuming
-    the two groups have equal variance. Returns NaN if either group has fewer
-    than 2 samples or scipy can't compute a p-value (e.g. zero variance).
+    the two groups have equal variance.
+
+    Returns (t_statistic, degrees_of_freedom, p_value). The t statistic is
+    positive when `values` has the higher mean; the degrees of freedom are the
+    (generally fractional) Welch-Satterthwaite approximation. All three are NaN
+    if either group has fewer than 2 samples or scipy can't compute them (e.g.
+    zero variance).
     """
     values = np.asarray(values, dtype=float)
     reference_values = np.asarray(reference_values, dtype=float)
     if len(values) < 2 or len(reference_values) < 2:
-        return np.nan
+        return np.nan, np.nan, np.nan
     try:
-        _, p_value = stats.ttest_ind(values, reference_values, equal_var=False, alternative='greater')
+        result = stats.ttest_ind(values, reference_values, equal_var=False, alternative='greater')
     except (ValueError, ZeroDivisionError):
-        return np.nan
-    return p_value
+        return np.nan, np.nan, np.nan
+    if np.isnan(result.statistic) or np.isnan(result.pvalue):
+        # scipy still returns a placeholder df (1.0) when the test is undefined
+        return np.nan, np.nan, np.nan
+    return result.statistic, result.df, result.pvalue
 
 
 def _get_baseline_group(baseline_df, feature, target, atlas='Schaefer400'):
@@ -266,9 +274,11 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None, baseline_df: p
 
     For classification results, also runs a one-sided t-test (see _ttest_greater)
     on accuracy and precision against the Schaefer400 functional-connectivity
-    baseline and the dummy-classifier baseline, adding `METRIC_P_VS_FC`/
-    `METRIC_SIG_VS_FC` and `METRIC_P_VS_DUMMY`/`METRIC_SIG_VS_DUMMY` columns
-    (SIG = p < 0.05). Baseline/dummy rows themselves are skipped (comparing a
+    baseline and the dummy-classifier baseline, adding `METRIC_T_VS_FC`/
+    `METRIC_DF_VS_FC`/`METRIC_P_VS_FC`/`METRIC_SIG_VS_FC` and `METRIC_T_VS_DUMMY`/
+    `METRIC_DF_VS_DUMMY`/`METRIC_P_VS_DUMMY`/`METRIC_SIG_VS_DUMMY` columns
+    (T = Welch's t statistic, DF = Welch-Satterthwaite degrees of freedom,
+    SIG = p < 0.05). Baseline/dummy rows themselves are skipped (comparing a
     baseline against itself isn't meaningful) and get NaN in these columns.
 
     Args:
@@ -308,7 +318,12 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None, baseline_df: p
             dummy_group = None if is_baseline_row else _get_baseline_group(baseline_df, 'dummy', target)
             for metric in ['accuracy', 'precision']:
                 for ref_name, ref_group in [('FC', fc_group), ('DUMMY', dummy_group)]:
-                    p_value = _ttest_greater(group[metric], ref_group[metric]) if ref_group is not None else np.nan
+                    if ref_group is not None:
+                        t_stat, dof, p_value = _ttest_greater(group[metric], ref_group[metric])
+                    else:
+                        t_stat, dof, p_value = np.nan, np.nan, np.nan
+                    record[f'{metric.upper()}_T_VS_{ref_name}'] = t_stat
+                    record[f'{metric.upper()}_DF_VS_{ref_name}'] = dof
                     record[f'{metric.upper()}_P_VS_{ref_name}'] = p_value
                     record[f'{metric.upper()}_SIG_VS_{ref_name}'] = (p_value < 0.05) if pd.notna(p_value) else np.nan
         else:
@@ -329,7 +344,7 @@ def make_summary_table(df: pd.DataFrame, output_dir: Path = None, baseline_df: p
             clf_metric_cols += [metric, f'{metric}_CI_LOW', f'{metric}_CI_HIGH']
         for metric in ['ACCURACY', 'PRECISION']:
             for ref_name in ['FC', 'DUMMY']:
-                clf_metric_cols += [f'{metric}_P_VS_{ref_name}', f'{metric}_SIG_VS_{ref_name}']
+                clf_metric_cols += [f'{metric}_T_VS_{ref_name}', f'{metric}_DF_VS_{ref_name}', f'{metric}_P_VS_{ref_name}', f'{metric}_SIG_VS_{ref_name}']
         clf_cols = ['Foundation Model', 'Atlas', 'Variation', 'Feature', 'Target', 'Classifier'] + clf_metric_cols
 
         reg_metric_cols = []
