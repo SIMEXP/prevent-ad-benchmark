@@ -2,7 +2,10 @@
 
 Benchmarking neuroimaging foundation models (BrainLM, BrainHarmonix) on the PREVENT-AD dataset for downstream prediction of clinical and biological targets.
 
-For fMRI data processing code, please see [SIMEXP/prevent-ad_dr8.1internal](https://github.com/SIMEXP/prevent-ad_dr8.1internal/)
+The Prevent-AD dataset requires a data usage agreement; hence, no subject-level data is shared.
+- For fMRI data processing code, please see [SIMEXP/prevent-ad_dr8.1internal](https://github.com/SIMEXP/prevent-ad_dr8.1internal/)
+- For better plotting, please see [SIMEXP/prevent-ad-benchmark-plotting](https://github.com/SIMEXP/prevent-ad-benchmark-plotting)
+- Experiment results for generating the paper figures: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22926042.svg)](https://doi.org/10.5281/zenodo.22926042)
 
 ## Overview
 
@@ -216,7 +219,7 @@ uv run inv brainharmonix.finetune --split-index=0
 uv run inv brainlm.submit-finetune --model-size=650M --preprocessing=all --n-splits=20 --rerun-finetune=True
 uv run inv brainharmonix.submit-finetune --n-splits=20 --rerun-finetune=True
 
-# 3. Generate summary tables and figures
+# 3. Generate preliminary summary tables and figures
 uv run inv reports.generate-summary --experiment all
 uv run inv reports.plot-learning-curves
 uv run inv reports.plot-classification
